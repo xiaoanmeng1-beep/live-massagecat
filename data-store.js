@@ -1,5 +1,31 @@
 const { DatabaseSync } = require('node:sqlite');
 
+function normalizeCatalogPrice(name, value) {
+  const raw = String(value || '').trim();
+  const priceMatch = raw.match(/^(\d+(?:\.\d+)?)\s*万(?:元)?$/);
+  const modelSuffix = String(name || '').trim().match(/[a-z](\d{2,3})$/i);
+  if (!priceMatch || !modelSuffix) return raw;
+
+  const numericText = priceMatch[1];
+  const prefix = modelSuffix[1];
+  if (!numericText.startsWith(prefix) || numericText.length <= prefix.length) return raw;
+
+  const repairedText = numericText.slice(prefix.length);
+  const originalPrice = Number(numericText);
+  const repairedPrice = Number(repairedText);
+  if (originalPrice >= 100 && repairedPrice > 0 && repairedPrice < 100) {
+    return repairedText + '万';
+  }
+  return raw;
+}
+
+function sameCatalogRows(current, incoming, fields) {
+  if (current.length !== incoming.length) return false;
+  return current.every((row, index) => fields.every(field =>
+    String(row[field] ?? '') === String(incoming[index]?.[field] ?? '')
+  ));
+}
+
 class DataStore {
   constructor(file) {
     this.db = new DatabaseSync(file);
@@ -99,45 +125,128 @@ class DataStore {
   }
 
   replaceBrands(category, items) {
+    const current = this.getBrands(category);
+    if (sameCatalogRows(current, items, ['id', 'name', 'initial'])) {
+      this.touch('brands:' + category);
+      return false;
+    }
     const insert = this.db.prepare('INSERT INTO brands(category, id, name, initial) VALUES (?, ?, ?, ?)');
     this.transaction(() => {
+      const activeIds = new Set(items.map(item => String(item.id)));
+      const removed = this.db.prepare('SELECT id FROM brands WHERE category = ?').all(category)
+        .filter(item => !activeIds.has(String(item.id)));
+      const deleteModels = this.db.prepare('DELETE FROM models WHERE category = ? AND brand_id = ?');
+      const deleteSeries = this.db.prepare('DELETE FROM series WHERE category = ? AND brand_id = ?');
+      removed.forEach(item => {
+        deleteModels.run(category, item.id);
+        deleteSeries.run(category, item.id);
+      });
       this.db.prepare('DELETE FROM brands WHERE category = ?').run(category);
       items.forEach(item => insert.run(category, item.id, item.name, item.initial));
       this.touch('brands:' + category);
     });
+    return true;
   }
 
   getSeries(category, brandId) {
     return this.db.prepare('SELECT id, name FROM series WHERE category = ? AND brand_id = ? ORDER BY rowid').all(category, brandId);
   }
 
+  searchSeries(category, keyword, limit = 120) {
+    const term = String(keyword || '').trim();
+    const query = `%${term}%`;
+    return this.db.prepare(`
+      SELECT series.id, series.name, series.brand_id AS brandId,
+             brands.name AS brandName, brands.initial AS brandInitial
+      FROM series
+      JOIN brands ON brands.category = series.category AND brands.id = series.brand_id
+      WHERE series.category = ? AND (series.name LIKE ? OR brands.name LIKE ?)
+      ORDER BY
+        CASE
+          WHEN series.name = ? THEN 0
+          WHEN series.name LIKE ? THEN 1
+          WHEN brands.name = ? THEN 2
+          ELSE 3
+        END,
+        brands.rowid,
+        series.rowid
+      LIMIT ?
+    `).all(category, query, query, term, `${term}%`, term, limit);
+  }
+
   replaceSeries(category, brandId, items) {
+    const current = this.getSeries(category, brandId);
+    if (sameCatalogRows(current, items, ['id', 'name'])) {
+      this.touch(`series:${category}:${brandId}`);
+      return false;
+    }
     const insert = this.db.prepare('INSERT INTO series(category, brand_id, id, name) VALUES (?, ?, ?, ?)');
     this.transaction(() => {
+      const activeIds = new Set(items.map(item => String(item.id)));
+      const removed = this.db.prepare('SELECT id FROM series WHERE category = ? AND brand_id = ?').all(category, brandId)
+        .filter(item => !activeIds.has(String(item.id)));
+      const deleteModels = this.db.prepare(
+        'DELETE FROM models WHERE category = ? AND brand_id = ? AND series_id = ?'
+      );
+      removed.forEach(item => deleteModels.run(category, brandId, item.id));
       this.db.prepare('DELETE FROM series WHERE category = ? AND brand_id = ?').run(category, brandId);
       items.forEach(item => insert.run(category, brandId, item.id, item.name));
       this.touch(`series:${category}:${brandId}`);
     });
+    return true;
   }
 
   getModels(category, brandId, seriesId) {
-    return this.db.prepare(`
+    const rows = this.db.prepare(`
       SELECT id, year, name, min_registration_year AS minRegistrationYear,
              max_registration_year AS maxRegistrationYear, catalog_price AS catalogPrice
       FROM models WHERE category = ? AND brand_id = ? AND series_id = ? ORDER BY rowid
     `).all(category, brandId, seriesId);
+    const updatePrice = this.db.prepare(`
+      UPDATE models SET catalog_price = ?
+      WHERE category = ? AND brand_id = ? AND series_id = ? AND id = ?
+    `);
+    return rows.map(item => {
+      const catalogPrice = normalizeCatalogPrice(item.name, item.catalogPrice);
+      if (catalogPrice !== item.catalogPrice) {
+        updatePrice.run(catalogPrice || null, category, brandId, seriesId, item.id);
+      }
+      return { ...item, catalogPrice };
+    });
   }
 
   replaceModels(category, brandId, seriesId, items) {
+    const normalizedItems = items.map(item => ({
+      ...item,
+      catalogPrice: normalizeCatalogPrice(item.name, item.catalogPrice)
+    }));
+    const current = this.getModels(category, brandId, seriesId);
+    if (sameCatalogRows(current, normalizedItems, [
+      'id', 'year', 'name', 'minRegistrationYear', 'maxRegistrationYear', 'catalogPrice'
+    ])) {
+      this.touch(`models:${category}:${brandId}:${seriesId}`);
+      return false;
+    }
     const insert = this.db.prepare(`
       INSERT INTO models(category, brand_id, series_id, id, year, name, min_registration_year, max_registration_year, catalog_price)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     this.transaction(() => {
       this.db.prepare('DELETE FROM models WHERE category = ? AND brand_id = ? AND series_id = ?').run(category, brandId, seriesId);
-      items.forEach(item => insert.run(category, brandId, seriesId, item.id, item.year, item.name, item.minRegistrationYear, item.maxRegistrationYear, item.catalogPrice ?? null));
+      normalizedItems.forEach(item => insert.run(
+        category,
+        brandId,
+        seriesId,
+        item.id,
+        item.year,
+        item.name,
+        item.minRegistrationYear,
+        item.maxRegistrationYear,
+        item.catalogPrice || null
+      ));
       this.touch(`models:${category}:${brandId}:${seriesId}`);
     });
+    return true;
   }
 
   getRegions() {

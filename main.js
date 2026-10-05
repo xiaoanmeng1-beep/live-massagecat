@@ -40,6 +40,7 @@ let loginReachedLoginPage = false;
 let loginSyncRecoveryAttempted = false;
 let loginLastSyncPhase = '';
 let loginPhoneMask = '';
+let startupSessionRestore = Promise.resolve();
 let workerWindow;
 let workerCategory = '';
 let workerBrandId = '';
@@ -49,6 +50,8 @@ let runtimeLogFile;
 let regionRequest;
 let dataStore;
 const catalogTaskPromises = new Map();
+let fullCatalogUpdatePromise = null;
+let fullCatalogProgress = { running: false, percent: 0, label: '' };
 let logSequence = 0;
 const logHistory = [];
 
@@ -136,7 +139,9 @@ function createMainWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.once('did-finish-load', () => {
     publishAccounts();
-    verifyStartupAccounts().catch(error => emitLog('启动验证失败', { message: error.message }));
+    Promise.race([startupSessionRestore, sleep(1500)])
+      .then(() => verifyStartupAccounts())
+      .catch(error => emitLog('启动验证失败', { message: error.message }));
   });
   return mainWindow;
 }
@@ -387,13 +392,29 @@ async function completeLogin(reason, url) {
 }
 
 async function hasSyncedLoginCookie() {
+  return partitionHasValidLoginCookie(CHE300_PARTITION);
+}
+
+async function partitionHasValidLoginCookie(partition) {
   try {
-    const cookies = await session.fromPartition(CHE300_PARTITION).cookies.get({ name: 'login_st' });
+    const cookies = await session.fromPartition(partition).cookies.get({ name: 'login_st' });
     const now = Date.now() / 1000;
     return cookies.some(cookie => Boolean(cookie.value) && (!cookie.expirationDate || cookie.expirationDate > now));
   } catch {
     return false;
   }
+}
+
+async function clearStaleLoginSession() {
+  const accountSession = session.fromPartition(CHE300_PARTITION);
+  const cookies = await accountSession.cookies.get({ name: 'login_st' });
+  for (const cookie of cookies) {
+    const details = cookieSetDetails(cookie);
+    await accountSession.cookies.remove(details.url, cookie.name);
+  }
+  await accountSession.cookies.flushStore();
+  removeAccountSessionSnapshot(currentAccountId);
+  if (cookies.length) emitLog('重新登录前已清除旧登录凭据');
 }
 
 async function checkLoginWindow() {
@@ -402,9 +423,6 @@ async function checkLoginWindow() {
   if (state.syncPhase && state.syncPhase !== loginLastSyncPhase) {
     loginLastSyncPhase = state.syncPhase;
     emitLog('官方登录会话同步', { phase: state.syncPhase, error: state.syncError });
-  }
-  if (state.syncPhase === 'synced' && !state.syncError && await hasSyncedLoginCookie()) {
-    return completeLogin('登录会话同步完成', state.url);
   }
   let hostname = '';
   try {
@@ -440,6 +458,11 @@ async function openChe300Login(targetUrl) {
   loginLastSyncPhase = '';
   loginPhoneMask = '';
   sessionVerified = false;
+  try {
+    await clearStaleLoginSession();
+  } catch (error) {
+    emitLog('清除旧登录凭据失败', { message: error.message });
+  }
   reportAuthState('login-required');
   loginCompletion = new Promise((resolve) => {
     resolveLoginCompletion = resolve;
@@ -474,11 +497,8 @@ async function openChe300Login(targetUrl) {
         return;
       }
       if (loginReachedLoginPage && hostname === 'www.che300.com') {
-        if (await hasSyncedLoginCookie()) {
-          await completeLogin('登录页回跳且会话已同步', url);
-          return;
-        }
-        emitLog('登录页已回跳官网，等待会话同步完成', { url });
+        const synced = await hasSyncedLoginCookie();
+        emitLog(synced ? '登录页已回跳，等待受保护页面确认登录状态' : '登录页已回跳，等待会话同步完成', { url });
       }
     } catch (error) {
       emitLog('读取登录跳转地址失败', { message: error.message });
@@ -819,11 +839,14 @@ async function getSeries(category, brandId) {
   const local = dataStore.getSeries(category, id);
   if (local.length) {
     emitLog('从本地数据库读取车系', { brandId: id, count: local.length });
-    const scope = `series:${category}:${id}`;
-    if (!dataStore.isFresh(scope, CATALOG_TTL)) scheduleCatalogTask(scope, () => refreshSeries(category, id));
     return local;
   }
   return queueCatalogTask(`series:${category}:${id}`, () => refreshSeries(category, id));
+}
+
+function searchSeries(category, keyword) {
+  const query = String(keyword || '').trim().slice(0, 60);
+  return query ? dataStore.searchSeries(category, query) : [];
 }
 
 async function scrapeModels(category, brandId, seriesId) {
@@ -847,7 +870,13 @@ async function scrapeModels(category, brandId, seriesId) {
       id: node.id,
       year: node.getAttribute('rel') || '',
       name: node.getAttribute('data-name') || node.querySelector('.model_name')?.textContent.trim() || '',
-      catalogPrice: node.textContent.match(/(\\d+(?:\\.\\d+)?)\\s*万(?:元)?\\s*$/)?.[0].trim() || '',
+      catalogPrice: (() => {
+        const name = node.getAttribute('data-name') || node.querySelector('.model_name')?.textContent.trim() || '';
+        const priceNode = node.querySelector('.model_price, [class*=model_price], [class*=guide_price], [class*=price]');
+        const priceText = priceNode?.textContent || node.textContent.replace(name, ' ');
+        const matches = [...priceText.matchAll(/(\\d+(?:\\.\\d+)?)\\s*万(?:元)?/g)];
+        return matches.at(-1)?.[0].trim() || '';
+      })(),
       minRegistrationYear: node.getAttribute('data-min') || '',
       maxRegistrationYear: node.getAttribute('data-max') || ''
     })).filter((item) => item.id && item.name)
@@ -872,10 +901,6 @@ async function getModels(category, brandId, seriesId) {
   const local = dataStore.getModels(category, selectedBrandId, id);
   if (local.length) {
     emitLog('从本地数据库读取具体车型', { seriesId: id, count: local.length });
-    const scope = `models:${category}:${selectedBrandId}:${id}`;
-    if (local.some(model => model.catalogPrice == null) || !dataStore.isFresh(scope, CATALOG_TTL)) {
-      scheduleCatalogTask(scope, () => refreshModels(category, selectedBrandId, id));
-    }
     return local;
   }
   return queueCatalogTask(`models:${category}:${selectedBrandId}:${id}`, () => refreshModels(category, selectedBrandId, id));
@@ -1073,6 +1098,135 @@ function warmCatalog() {
     scheduleCatalogTask('brands:' + category, () => refreshBrands(category));
   }
   getRegions().catch(error => emitLog('后台地区更新失败', { message: error.message }));
+}
+
+function fullCatalogUpdateStateFile() {
+  return runtimeLogFile ? path.join(path.dirname(runtimeLogFile), 'catalog-update.json') : '';
+}
+
+function fullCatalogUpdateDue() {
+  try {
+    const state = JSON.parse(fs.readFileSync(fullCatalogUpdateStateFile(), 'utf8'));
+    return !Number.isFinite(state.completedAt) || Date.now() - state.completedAt >= CATALOG_TTL;
+  } catch {
+    return true;
+  }
+}
+
+function saveFullCatalogUpdateTime() {
+  const file = fullCatalogUpdateStateFile();
+  if (!file) return;
+  fs.writeFileSync(file, JSON.stringify({ completedAt: Date.now() }));
+}
+
+function reportFullCatalogProgress(progress) {
+  fullCatalogProgress = {
+    ...fullCatalogProgress,
+    ...progress,
+    percent: Math.max(0, Math.min(100, Math.round(progress.percent ?? fullCatalogProgress.percent)))
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('catalog:update-progress', fullCatalogProgress);
+  }
+}
+
+async function updateFullCatalog(trigger) {
+  let brandCount = 0;
+  let seriesCount = 0;
+  let modelCount = 0;
+  let failures = 0;
+  const categories = Object.keys(CATEGORY_INDEX);
+  emitLog('后台全量车型目录更新开始', { trigger });
+  reportFullCatalogProgress({ running: true, percent: 0, label: '正在准备车型数据', failures: 0 });
+  for (let categoryIndex = 0; categoryIndex < categories.length; categoryIndex += 1) {
+    const category = categories[categoryIndex];
+    const categoryBase = categoryIndex / categories.length * 100;
+    const categorySpan = 100 / categories.length;
+    let brands;
+    try {
+      reportFullCatalogProgress({
+        running: true,
+        percent: categoryBase,
+        label: '正在读取品牌数据',
+        failures
+      });
+      brands = await queueCatalogTask('brands:' + category, () => refreshBrands(category));
+      brandCount += brands.length;
+    } catch (error) {
+      failures += 1;
+      emitLog('车型目录分类更新失败', { category, message: error.message });
+      continue;
+    }
+    for (let brandIndex = 0; brandIndex < brands.length; brandIndex += 1) {
+      const brand = brands[brandIndex];
+      const brandBase = categoryBase + brandIndex / Math.max(1, brands.length) * categorySpan;
+      const brandSpan = categorySpan / Math.max(1, brands.length);
+      let series;
+      try {
+        reportFullCatalogProgress({
+          running: true,
+          percent: brandBase,
+          label: '正在更新 ' + brand.name,
+          failures,
+          brandCount,
+          seriesCount,
+          modelCount
+        });
+        series = await queueCatalogTask('series:' + category + ':' + brand.id, () => refreshSeries(category, brand.id));
+        seriesCount += series.length;
+      } catch (error) {
+        failures += 1;
+        emitLog('车型目录品牌更新失败', { category, brandId: brand.id, message: error.message });
+        continue;
+      }
+      for (let seriesIndex = 0; seriesIndex < series.length; seriesIndex += 1) {
+        const item = series[seriesIndex];
+        try {
+          const models = await queueCatalogTask('models:' + category + ':' + brand.id + ':' + item.id,
+            () => refreshModels(category, brand.id, item.id));
+          modelCount += models.length;
+        } catch (error) {
+          failures += 1;
+          emitLog('车型目录车系更新失败', { category, brandId: brand.id, seriesId: item.id, message: error.message });
+        }
+        reportFullCatalogProgress({
+          running: true,
+          percent: brandBase + (seriesIndex + 1) / Math.max(1, series.length) * brandSpan,
+          label: '正在更新 ' + brand.name,
+          failures,
+          brandCount,
+          seriesCount,
+          modelCount
+        });
+      }
+    }
+  }
+  if (!failures) saveFullCatalogUpdateTime();
+  emitLog('后台全量车型目录更新结束', { brandCount, seriesCount, modelCount, failures });
+  reportFullCatalogProgress({
+    running: false,
+    percent: 100,
+    label: failures ? '更新完成，部分数据稍后重试' : '车型数据更新完成',
+    failures,
+    brandCount,
+    seriesCount,
+    modelCount
+  });
+}
+
+function startFullCatalogUpdate(trigger = 'manual') {
+  if (fullCatalogUpdatePromise) return { started: false, ...fullCatalogProgress };
+  fullCatalogUpdatePromise = updateFullCatalog(trigger)
+    .catch(error => {
+      emitLog('后台全量车型目录更新失败', { message: error.message });
+      reportFullCatalogProgress({
+        running: false,
+        label: '本次更新未完成，稍后可重试',
+        failures: (fullCatalogProgress.failures || 0) + 1
+      });
+    })
+    .finally(() => { fullCatalogUpdatePromise = null; });
+  return { started: true, ...fullCatalogProgress };
 }
 
 async function estimateVehicle(input, scope) {
@@ -1555,8 +1709,7 @@ function publishAccounts() {
 
 async function listAccounts() {
   for (const account of accounts) {
-    const cookies = await session.fromPartition(account.partition).cookies.get({ url: 'https://www.che300.com/' });
-    account.hasSession = cookies.length > 0;
+    account.hasSession = await partitionHasValidLoginCookie(account.partition);
     if (!account.hasSession && account.status === 'unchecked') account.status = 'signed-out';
     else if (account.hasSession && account.status === 'unchecked') account.status = 'checking';
   }
@@ -1700,15 +1853,15 @@ async function probeAccount(account, budget = 10000, force = false) {
     if (account.lastCheckAt && Date.now() - account.lastCheckAt < ACCOUNT_CHECK_TTL) return false;
   }
   const version = account.validationVersion || 0;
+  const previousStatus = account.status;
   const isCurrent = () => (account.validationVersion || 0) === version && !account.loginInProgress;
   const work = async () => {
     let probe;
     account.lastCheckAt = Date.now();
     const deadline = Date.now() + budget;
     try {
-      const cookies = await session.fromPartition(account.partition).cookies.get({ url: 'https://www.che300.com/' });
       if (!isCurrent()) return account.status === 'authenticated';
-      account.hasSession = cookies.length > 0;
+      account.hasSession = await partitionHasValidLoginCookie(account.partition);
       if (!account.hasSession) {
         account.status = 'signed-out';
         account.checkedAt = 0;
@@ -1733,7 +1886,10 @@ async function probeAccount(account, budget = 10000, force = false) {
       account.checkedAt = verified ? Date.now() : 0;
       return verified;
     } catch (error) {
-      if (isCurrent()) { account.status = 'unknown'; account.checkedAt = 0; }
+      if (isCurrent()) {
+        account.status = account.hasSession ? 'unknown' : 'signed-out';
+        if (previousStatus !== 'authenticated') account.checkedAt = 0;
+      }
       emitLog('账号状态暂时无法确认', { account: account.label, message: error.message });
       return false;
     } finally {
@@ -1816,13 +1972,9 @@ async function getSessionState() {
 app.whenReady().then(async () => {
   initializeDataStore();
   initializeAccounts();
-  const sessionRestore = restoreAccountSessions().catch(error => {
+  startupSessionRestore = restoreAccountSessions().catch(error => {
     emitLog('恢复账号登录状态失败', { message: error.message });
   });
-  await Promise.race([
-    sessionRestore,
-    new Promise(resolve => setTimeout(resolve, 1500))
-  ]);
   selfTest();
   ipcMain.handle('app:logs', () => logHistory);
   ipcMain.handle('catalog:regions', getRegions);
@@ -1879,7 +2031,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('che300:select-account', (_event, id) => serializeBrowserWork(() => activateAccount(id)));
   ipcMain.handle('catalog:brands', (_event, category) => runLogged('请求品牌目录', { category }, () => getBrands(category)));
   ipcMain.handle('catalog:series', (_event, input) => runLogged('请求车系列表', { brandId: input.brandId }, () => getSeries(input.category, input.brandId)));
+  ipcMain.handle('catalog:search-series', (_event, input) => searchSeries(input.category, input.keyword));
   ipcMain.handle('catalog:models', (_event, input) => runLogged('请求具体车型', { seriesId: input.seriesId }, () => getModels(input.category, input.brandId, input.seriesId)));
+  ipcMain.handle('catalog:update-all', () => startFullCatalogUpdate('manual'));
   ipcMain.handle('che300:estimate', (_event, input) => submitEstimate(input));
   ipcMain.on('che300:cancel-estimate', () => quoteRequests.cancel());
   createMainWindow();

@@ -800,6 +800,36 @@ button.form-row {
   grid-template-rows: 40px minmax(0, 1fr);
   min-width: 0;
 }
+.picker-header-with-search {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) 28px;
+  gap: 10px;
+}
+.picker-search-input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 10px;
+  border: 1px solid #cfd7e2;
+  border-radius: 5px;
+  color: var(--text);
+  background: #f8fafc;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  -webkit-app-region: no-drag;
+}
+.picker-header-with-search h2 { white-space: nowrap; }
+.series-search-result { text-align: left; }
+.picker-search-input:focus {
+  outline: 2px solid #a6cfff;
+  outline-offset: 0;
+  background: #fff;
+}
+.picker-item[hidden],
+.brand-letter-heading[hidden] {
+  display: none !important;
+}
 .inline-picker .picker-header,
 .inline-picker .date-header { padding: 0 12px; background: #f8fafc; }
 .inline-picker .picker-header h2,
@@ -1035,6 +1065,28 @@ button.form-row {
 .login-panel { margin-bottom: 8px; }
 .login-panel-header { padding: 8px; }
 .account-policy { margin-top: 8px; font-size: 11px; }
+.catalog-update-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.catalog-update-panel button {
+  padding: 6px 9px;
+  border: 1px solid #acd0f7;
+  border-radius: 5px;
+  color: #176fc7;
+  background: #f6faff;
+  font: inherit;
+  cursor: pointer;
+}
+.catalog-update-panel button:disabled { cursor: default; opacity: 0.65; }
 .diagnostics { margin-top: 12px; }
 .split-controls { grid-column: 2 / -1; min-width: 0; padding: 7px 0; font-size: 13px; }
 .date-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
@@ -1141,3 +1193,51 @@ button.form-row {
 .vehicle-photo-resize-handle.corner-sw { left: -7px; bottom: -7px; cursor: nesw-resize; }
 .vehicle-photo-resize-handle.corner-se { right: -7px; bottom: -7px; cursor: nwse-resize; }
 .account-actions .delete-account-button { color: #b44840; border-color: #ead3d0; background: #fff; }
+.catalog-update-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.catalog-update-progress {
+  margin-top: 12px;
+}
+
+.catalog-update-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe8f5;
+}
+
+.catalog-update-track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: #2f8df2;
+  transition: width 240ms ease;
+}
+
+.catalog-update-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 7px;
+  color: #6f7782;
+  font-size: 12px;
+}
+
+.catalog-update-status span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-update-status b {
+  flex: none;
+  color: #2f8df2;
+}

@@ -98,6 +98,20 @@
       <label>滚动字幕<input id="bannerTickerInput" type="text" maxlength="120"></label>
       <p>主标题中的 X月份会自动显示电脑当前月份。</p>
     </section>
+    <section class="catalog-update-panel">
+      <div class="catalog-update-heading">
+        <strong>车型数据</strong>
+        <button id="updateFullCatalog" type="button">后台更新车型库</button>
+      </div>
+      <div class="catalog-update-progress" id="catalogUpdateProgress" hidden>
+        <div class="catalog-update-track"><i id="catalogUpdateBar"></i></div>
+        <div class="catalog-update-status">
+          <span id="catalogUpdateLabel">正在准备车型数据</span>
+          <b id="catalogUpdatePercent">0%</b>
+        </div>
+      </div>
+    </section>
+
     <details class="diagnostics">
     <summary>运行日志</summary>
     <section class="log-panel">

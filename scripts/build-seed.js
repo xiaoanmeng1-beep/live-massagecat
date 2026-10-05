@@ -4,7 +4,7 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
 const projectRoot = path.resolve(__dirname, '..');
-const localPortable = [path.join(projectRoot, 'dist', 'data', 'valuation.sqlite'), path.join(projectRoot, 'data', 'valuation.sqlite')].find(file => fs.existsSync(file));
+const localPortable = [path.join(projectRoot, 'data', 'valuation.sqlite'), path.join(projectRoot, 'dist', 'data', 'valuation.sqlite')].find(file => fs.existsSync(file));
 const sourceFile = path.resolve(process.argv[2] || localPortable || path.join(
   os.homedir(),
   'Library',

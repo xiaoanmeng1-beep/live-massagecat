@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:seed": "node scripts/build-seed.js",
+    "build:seed": "node scripts/run-build-seed.js",
     "build:mac": "npm run build:seed && electron-builder --mac dir",
     "build:win": "npm run build:seed && electron-builder --win dir --x64"
   },

@@ -70,6 +70,77 @@ const citySelect = $('#citySelect');
 let regionSelectRequest = null;
 const formMessage = $('#formMessage');
 const resultCard = $('#resultCard');
+
+function createPickerSearch(dialog, placeholder) {
+  const shell = dialog?.querySelector('.picker-dialog');
+  const header = shell?.querySelector('.picker-header');
+  if (!shell || !header) return null;
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.className = 'picker-search-input';
+  input.placeholder = placeholder;
+  input.setAttribute('aria-label', placeholder);
+  input.autocomplete = 'off';
+  header.classList.add('picker-header-with-search');
+  header.insertBefore(input, header.querySelector('.close-button'));
+  return input;
+}
+
+function filterPickerItems(container, keyword) {
+  const query = String(keyword || '').trim().toLocaleLowerCase('zh-CN');
+  const items = [...container.querySelectorAll('.picker-item')];
+  items.forEach(item => {
+    item.hidden = Boolean(query) && !item.textContent.toLocaleLowerCase('zh-CN').includes(query);
+  });
+  container.querySelectorAll('.brand-letter-heading').forEach(heading => {
+    let sibling = heading.nextElementSibling;
+    let hasVisibleItem = false;
+    while (sibling && !sibling.classList.contains('brand-letter-heading')) {
+      if (sibling.classList.contains('picker-item') && !sibling.hidden) hasVisibleItem = true;
+      sibling = sibling.nextElementSibling;
+    }
+    heading.hidden = !hasVisibleItem;
+  });
+}
+
+const vehicleSearchInput = createPickerSearch(vehicleDialog, '搜索品牌或车型');
+const configurationSearchInput = createPickerSearch(configurationDialog, '搜索年份、配置或价格');
+let vehicleSearchTimer = 0;
+let vehicleSearchRevision = 0;
+
+function applyVehicleSearch() {
+  clearTimeout(vehicleSearchTimer);
+  const keyword = String(vehicleSearchInput?.value || '').trim();
+  const revision = ++vehicleSearchRevision;
+  if (!keyword) {
+    renderBrands();
+    if (state.brand) renderSeries();
+    else pickerStatus(seriesList, '请选择品牌');
+    return;
+  }
+
+  const query = keyword.toLocaleLowerCase('zh-CN');
+  renderBrandSearchResults(state.brands.filter(brand => brand.name.toLocaleLowerCase('zh-CN').includes(query)));
+  pickerStatus(seriesList, '搜索中…');
+  vehicleSearchTimer = setTimeout(async () => {
+    try {
+      const matches = await window.desktop.searchSeries(state.category, keyword);
+      if (revision !== vehicleSearchRevision || keyword !== String(vehicleSearchInput?.value || '').trim()) return;
+      renderSeriesSearchResults(matches);
+    } catch {
+      if (revision === vehicleSearchRevision) pickerStatus(seriesList, '搜索失败');
+    }
+  }, 120);
+}
+
+function applyConfigurationSearch() {
+  filterPickerItems(trimList, configurationSearchInput?.value || '');
+}
+
+vehicleSearchInput?.addEventListener('input', applyVehicleSearch);
+configurationSearchInput?.addEventListener('input', applyConfigurationSearch);
+new MutationObserver(applyConfigurationSearch).observe(trimList, { childList: true });
+
 let estimateTimer;
 let estimateRunning = false;
 let manualLoginRunning = false;
@@ -407,34 +478,94 @@ function renderBrands() {
     brandList.append(heading);
 
     brands.forEach((brand) => {
-      const brandButton = createPickerItem(brand, state.brand?.id === brand.id, async () => {
-        if (state.brand?.id === brand.id && state.seriesList.length) return;
-        brandList.querySelectorAll('.picker-item.active').forEach((button) => button.classList.remove('active'));
-        brandButton.classList.add('active');
-        state.brand = brand;
-        state.series = null;
-        state.model = null;
-        state.seriesList = [];
-        state.models = [];
-        resetRegistration();
-        syncVehicleFields();
-        scheduleEstimate();
-        pickerStatus(seriesList, '加载中…');
-        trimList.replaceChildren();
-        appendLocalLog('选择品牌：' + brand.name + '，开始加载车系');
-        try {
-          const loaded = await window.desktop.getSeries(state.category, brand.id);
-          if (state.brand?.id !== brand.id) return;
-          state.seriesList = loaded;
-          renderSeries();
-        } catch (error) {
-          if (state.brand?.id === brand.id) pickerStatus(seriesList, error.message || '加载失败');
-        }
-      });
+      const brandButton = createPickerItem(brand, state.brand?.id === brand.id, () => selectBrand(brand));
       brandList.append(brandButton);
     });
   });
 
+}
+
+async function selectBrand(brand) {
+  if (state.brand?.id === brand.id && state.seriesList.length) {
+    renderBrands();
+    renderSeries();
+    return;
+  }
+  state.brand = brand;
+  state.series = null;
+  state.model = null;
+  state.seriesList = [];
+  state.models = [];
+  resetRegistration();
+  syncVehicleFields();
+  scheduleEstimate();
+  pickerStatus(seriesList, '加载中…');
+  trimList.replaceChildren();
+  appendLocalLog('选择品牌：' + brand.name + '，开始加载车系');
+  try {
+    const loaded = await window.desktop.getSeries(state.category, brand.id);
+    if (state.brand?.id !== brand.id) return;
+    state.seriesList = loaded;
+    renderBrands();
+    renderSeries();
+  } catch (error) {
+    if (state.brand?.id === brand.id) pickerStatus(seriesList, error.message || '加载失败');
+  }
+}
+
+async function selectSeries(series, brand = state.brand) {
+  if (!brand) return;
+  let availableSeries = state.brand?.id === brand.id ? state.seriesList : [];
+  if (!availableSeries.some(item => String(item.id) === String(series.id))) {
+    pickerStatus(seriesList, '加载中…');
+    availableSeries = await window.desktop.getSeries(state.category, brand.id);
+  }
+  const selectedSeries = availableSeries.find(item => String(item.id) === String(series.id)) || series;
+  const changed = state.brand?.id !== brand.id || state.series?.id !== selectedSeries.id;
+  state.brand = brand;
+  state.seriesList = availableSeries;
+  state.series = selectedSeries;
+  if (changed) {
+    state.model = null;
+    state.models = [];
+    resetRegistration();
+    scheduleEstimate();
+  }
+  syncVehicleFields();
+  vehicleDialog.close();
+  toggleInlinePicker(configurationDialog);
+  appendLocalLog('选择车系：' + selectedSeries.name + '，开始选择配置');
+  await loadModelOptions();
+  requestAnimationFrame(() => centerSelectedItem(trimList));
+}
+
+function renderBrandSearchResults(brands) {
+  brandIndex.replaceChildren();
+  brandList.replaceChildren();
+  if (!brands.length) {
+    pickerStatus(brandList, '未找到品牌');
+    return;
+  }
+  brands.forEach(brand => brandList.append(createPickerItem(brand, state.brand?.id === brand.id, () => selectBrand(brand))));
+}
+
+function renderSeriesSearchResults(seriesItems) {
+  seriesList.replaceChildren();
+  if (!seriesItems.length) {
+    pickerStatus(seriesList, '未找到车系');
+    return;
+  }
+  seriesItems.forEach(series => {
+    const brand = state.brands.find(item => String(item.id) === String(series.brandId)) || {
+      id: String(series.brandId), name: series.brandName, initial: series.brandInitial || '#'
+    };
+    const button = createPickerItem({ ...series, name: series.name + ' · ' + series.brandName },
+      state.series?.id === series.id && state.brand?.id === brand.id,
+      () => selectSeries(series, brand));
+    button.classList.add('series-search-result');
+    button.title = series.brandName + ' · ' + series.name;
+    seriesList.append(button);
+  });
 }
 
 function shortConfigurationName(model) {
@@ -496,23 +627,7 @@ async function loadModelOptions() {
 function renderSeries() {
   seriesList.replaceChildren();
   state.seriesList.forEach((series) => {
-    const seriesButton = createPickerItem(series, state.series?.id === series.id, async () => {
-      seriesList.querySelectorAll('.picker-item.active').forEach(button => button.classList.remove('active'));
-      seriesButton.classList.add('active');
-      if (state.series?.id !== series.id) {
-        state.series = series;
-        state.model = null;
-        state.models = [];
-        resetRegistration();
-        scheduleEstimate();
-      }
-      syncVehicleFields();
-      vehicleDialog.close();
-      toggleInlinePicker(configurationDialog);
-      appendLocalLog('选择车系：' + series.name + '，开始选择配置');
-      await loadModelOptions();
-      requestAnimationFrame(() => centerSelectedItem(trimList));
-    });
+    const seriesButton = createPickerItem(series, state.series?.id === series.id, () => selectSeries(series));
     seriesList.append(seriesButton);
   });
 }
@@ -1010,10 +1125,10 @@ function renderAccounts(accounts) {
     container.append(empty);
   }
   const statuses = {
-    authenticated: '登录已确认', unchecked: '正在验证登录', 'signed-out': '未登录',
-    checking: '检查中', expired: '登录已失效', 'login-required': '等待登录',
-    cancelled: '登录未完成', unknown: '暂时无法确认', authenticating: '登录中', syncing: '同步登录状态',
-    cooldown: '估值冷却中', deleting: '删除中'
+    authenticated: '登录已确认', unchecked: '正在验证登录', 'signed-out': '需要登录',
+    checking: '正在验证登录', expired: '需要登录', 'login-required': '等待登录',
+    cancelled: '登录未完成', unknown: '登录检查超时', authenticating: '登录中', syncing: '同步登录状态',
+    cooldown: '已登录，估价冷却中', deleting: '删除中'
   };
   accounts.forEach(account => {
     const card = document.createElement('section');
@@ -1030,13 +1145,13 @@ function renderAccounts(accounts) {
     heading.textContent = account.label + (account.phoneMask ? ' · ' + account.phoneMask : '')
       + (account.active ? ' · 当前使用' : '');
     const status = document.createElement('span');
-    status.className = 'account-item-status' + (account.status === 'authenticated' ? ' verified' : '');
+    status.className = 'account-item-status' + (['authenticated', 'cooldown'].includes(account.status) ? ' verified' : '');
     status.textContent = statuses[account.status] || '待验证';
     const actions = document.createElement('div');
     actions.className = 'account-actions';
     const login = document.createElement('button');
     login.type = 'button';
-    login.textContent = account.status === 'authenticated' ? '重新登录' : '登录';
+    login.textContent = account.hasSession || ['authenticated', 'cooldown'].includes(account.status) ? '重新登录' : '登录';
     login.addEventListener('click', () => accountAction(() => window.desktop.loginAccount(account.id)));
     const select = document.createElement('button');
     select.type = 'button';
@@ -1108,6 +1223,40 @@ $('#addAccount').addEventListener('click', () => accountAction(async () => {
   const account = await window.desktop.addAccount();
   return window.desktop.loginAccount(account.id);
 }));
+
+$('#updateFullCatalog').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const result = await window.desktop.updateFullCatalog();
+    button.textContent = '后台正在更新';
+    if (result.running) renderCatalogUpdateProgress(result);
+  } catch (error) {
+    appendLocalLog('启动车型库更新失败：' + (error.message || '未知错误'));
+    button.textContent = '启动失败，请重试';
+    setTimeout(() => {
+      button.disabled = false;
+      button.textContent = '后台更新车型库';
+    }, 1600);
+  }
+});
+
+function renderCatalogUpdateProgress(progress) {
+  const panel = $('#catalogUpdateProgress');
+  const button = $('#updateFullCatalog');
+  const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
+  panel.hidden = false;
+  $('#catalogUpdateBar').style.width = percent + '%';
+  $('#catalogUpdatePercent').textContent = percent + '%';
+  $('#catalogUpdateLabel').textContent = progress?.label || '正在更新车型数据';
+  button.disabled = Boolean(progress?.running);
+  button.textContent = progress?.running ? '后台正在更新' : '后台更新车型库';
+  if (!progress?.running) {
+    setTimeout(() => { panel.hidden = true; }, 5000);
+  }
+}
+
+window.desktop.onFullCatalogProgress(renderCatalogUpdateProgress);
 window.desktop.onAccounts(renderAccounts);
 window.desktop.onQuoteUpdated(({ requestId, inputKey, result }) => {
   if (!result?.ok || result.cached || currentEstimateKey() !== inputKey) return;
