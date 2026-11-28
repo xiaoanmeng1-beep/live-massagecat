@@ -16,43 +16,6 @@ const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const seenLogIds = new Set();
 const $ = (selector) => document.querySelector(selector);
 
-const defaultBannerCopy = {
-  primary: '在线查价  X月份真实收车价',
-  ticker: '所在地丨车型丨配置丨上牌丨公里数'
-};
-let bannerCopy = { ...defaultBannerCopy };
-try {
-  const saved = JSON.parse(localStorage.getItem('valuation-banner-copy'));
-  if (saved && typeof saved.primary === 'string' && typeof saved.ticker === 'string') {
-    bannerCopy = { primary: saved.primary, ticker: saved.ticker };
-  }
-} catch {}
-
-function displayBannerPrimary(text) {
-  return text.replace(/x(?=月份)/gi, String(new Date().getMonth() + 1));
-}
-
-function renderBannerCopy() {
-  $('#valuationBannerPrimary').textContent = displayBannerPrimary(bannerCopy.primary);
-  $('#valuationBannerTicker').textContent = bannerCopy.ticker;
-  $('#bannerPrimaryInput').value = bannerCopy.primary;
-  $('#bannerTickerInput').value = bannerCopy.ticker;
-}
-
-function updateBannerCopy() {
-  bannerCopy = {
-    primary: $('#bannerPrimaryInput').value,
-    ticker: $('#bannerTickerInput').value
-  };
-  try { localStorage.setItem('valuation-banner-copy', JSON.stringify(bannerCopy)); } catch {}
-  $('#valuationBannerPrimary').textContent = displayBannerPrimary(bannerCopy.primary);
-  $('#valuationBannerTicker').textContent = bannerCopy.ticker;
-}
-
-$('#bannerPrimaryInput').addEventListener('input', updateBannerCopy);
-$('#bannerTickerInput').addEventListener('input', updateBannerCopy);
-renderBannerCopy();
-
 const vehicleDialog = $('#vehicleDialog');
 const configurationDialog = $('#configurationDialog');
 const configurationField = $('#configurationField');
@@ -153,6 +116,7 @@ const earlyQuoteUpdates = new Map();
 const logOutput = $('#logOutput');
 let regions = [];
 let pendingProvinceId = '';
+const cheQuotePool={key:'',revision:-1,accounts:[]};
 
 const loginPanel = $('#loginPanel');
 const loginPanelHost = $('#loginPanelHost');
@@ -174,6 +138,10 @@ function syncLoginPanelBounds() {
   loginPanelFrame = requestAnimationFrame(() => {
     loginPanelFrame = 0;
     if (loginPanel.hidden || panelResizePointer !== null) return;
+    if (!$('#accountSettings').open) {
+      window.desktop.setLoginPanelBounds({x:0,y:0,width:0,height:0});
+      return;
+    }
     const { x, y, width, height } = loginPanelHost.getBoundingClientRect();
     window.desktop.setLoginPanelBounds({ x, y, width, height });
   });
@@ -193,13 +161,14 @@ window.desktop.onLoginPanelState(({ phase }) => {
 $('#closeLoginPanel').addEventListener('click', () => window.desktop.closeLoginPanel());
 $('#retryLoginPanel').addEventListener('click', () => window.desktop.retryLoginPanel());
 new ResizeObserver(syncLoginPanelBounds).observe(loginPanelHost);
+document.querySelectorAll('.settings-group').forEach(group=>group.addEventListener('toggle',syncLoginPanelBounds));
 window.addEventListener('resize', syncLoginPanelBounds);
 window.addEventListener('scroll', syncLoginPanelBounds, true);
 
 const panelShell = $('.app-shell');
 const panelDivider = $('#panelDivider');
 let panelResizePointer = null;
-let preferredAccountWidth = 340;
+let preferredAccountWidth = 400;
 let observedShellWidth = 0;
 try {
   const saved = Number(localStorage.getItem('account-panel-width'));
@@ -338,6 +307,121 @@ function appendLog(entry) {
 function appendLocalLog(message) {
   appendLog({ time: Date.now(), message });
 }
+
+const douyinRoomInput = $('#douyinRoomInput');
+const connectDouyinBridgeButton = $('#connectDouyinBridge');
+const disconnectDouyinBridgeButton = $('#disconnectDouyinBridge');
+const douyinBridgeMessage = $('#douyinBridgeMessage');
+const douyinBridgeBadge = $('#douyinBridgeBadge');
+const douyinProcessStatus = $('#douyinProcessStatus');
+const douyinConnectionStatus = $('#douyinConnectionStatus');
+const douyinLastComment = $('#douyinLastComment');
+
+function setDouyinBridgeMessage(message, level = 'info') {
+  douyinBridgeMessage.textContent = message || '';
+  douyinBridgeMessage.className = 'douyin-bridge-message' + (message ? ` ${level}` : '');
+}
+
+function renderDouyinBridgeStatus(status = {}) {
+  const processState = status.process?.state || 'idle';
+  const connectionState = status.state || 'idle';
+  const phase=status.process?.capture?.room===status.room ? status.process?.capture?.phase : null;
+  const listening=connectionState==='connected' && phase==='listening';
+  const processLabels = {
+    idle: '未启动', 'waiting-room': '等待直播间号', starting: '启动中', running: '运行中',
+    stopping: '停止中', stopped: '已停止', error: '启动失败'
+  };
+  const connectionLabels = {
+    idle: '未连接', connecting: '连接中', connected: '已连接',
+    disconnected: '已断开，自动重连', error: '连接异常', closed: '已断开'
+  };
+  const waitingForRoom = ['idle', 'waiting-room', 'stopped'].includes(processState)
+    && ['idle', 'closed'].includes(connectionState);
+  const badgeState = processState === 'error' || connectionState === 'error'
+    ? 'error' : listening ? 'connected' : waitingForRoom ? 'idle' : 'pending';
+  const badgeLabels = {
+    connected: '采集中', pending: connectionState==='connected'?'准备采集':'启动中', error: '有异常',
+    idle: status.room ? '已断开' : '待配置'
+  };
+  douyinBridgeBadge.className = `douyin-bridge-badge ${badgeState}`;
+  douyinBridgeBadge.textContent = badgeLabels[badgeState];
+  douyinProcessStatus.textContent = processLabels[processState] || processState;
+  douyinConnectionStatus.textContent = connectionState==='connected'?'本地桥已连接':connectionLabels[connectionState] || connectionState;
+  if (status.room && document.activeElement !== douyinRoomInput) douyinRoomInput.value = status.room;
+
+  const errorMessage = processState === 'error'
+    ? status.process?.lastError
+    : connectionState === 'error' ? status.lastError : '';
+  if (errorMessage) setDouyinBridgeMessage(errorMessage, 'error');
+  else if (listening) setDouyinBridgeMessage('正在监听新评论，匹配成功后才会报价。', 'success');
+  else if (connectionState==='connected') setDouyinBridgeMessage(phase==='waiting-chat'
+    ?'已打开直播间，等待读到评论区。首次显示的已有留言不会报价。'
+    :'本地桥已连通，正在打开或重连直播间…','info');
+  else if (waitingForRoom && status.room) setDouyinBridgeMessage('已断开，点击「连接直播间」开始采集。', 'info');
+  else if (processState === 'waiting-room') setDouyinBridgeMessage('请填写直播间号或直播间链接。', 'info');
+  else if (processState === 'starting' || connectionState === 'connecting') setDouyinBridgeMessage('正在启动内置桥接并连接直播间…', 'info');
+  else if (connectionState === 'disconnected') setDouyinBridgeMessage('桥接连接断开，正在自动重连…', 'error');
+}
+
+async function connectDouyinBridgeFromForm() {
+  const value = douyinRoomInput.value.trim();
+  if (!value) {
+    setDouyinBridgeMessage('请先填写直播间号或直播间链接。', 'error');
+    douyinRoomInput.focus();
+    return;
+  }
+  connectDouyinBridgeButton.disabled = true;
+  setDouyinBridgeMessage('正在启动内置桥接…', 'info');
+  try {
+    renderDouyinBridgeStatus(await window.desktop.setLiveRoom(value));
+  } catch (error) {
+    setDouyinBridgeMessage(error.message || '直播间配置未保存，请检查格式。', 'error');
+  } finally {
+    connectDouyinBridgeButton.disabled = false;
+  }
+}
+
+async function disconnectDouyinBridgeFromForm() {
+  disconnectDouyinBridgeButton.disabled = true;
+  try {
+    renderDouyinBridgeStatus(await window.desktop.disconnectLiveBridge());
+    setDouyinBridgeMessage('已断开抖音评论桥。', 'info');
+  } catch (error) {
+    setDouyinBridgeMessage(error.message || '断开操作未完成。', 'error');
+  } finally {
+    disconnectDouyinBridgeButton.disabled = false;
+  }
+}
+
+connectDouyinBridgeButton.addEventListener('click', connectDouyinBridgeFromForm);
+disconnectDouyinBridgeButton.addEventListener('click', disconnectDouyinBridgeFromForm);
+douyinRoomInput.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    connectDouyinBridgeFromForm();
+  }
+});
+window.desktop.onLiveStatus(renderDouyinBridgeStatus);
+let lastCommentEvent=null;
+window.desktop.onLiveComment(comment => {
+  lastCommentEvent=comment;
+  const name = String(comment?.name || '直播观众');
+  const text = String(comment?.text || '').trim();
+  douyinLastComment.textContent = text ? `${name}：${text}` : `${name}：收到评论，但正文为空`;
+});
+// Only update the latest comment if the quote belongs to that exact event.
+window.desktop.onQuoteBoard(({current,pending=[],history=[]})=>{
+  const c=lastCommentEvent;
+  if(!c?.eventId)return;
+  const job=[current,...pending,...history].find(j=>j?.avatar && j.id===c.id && j.eventId===c.eventId && j.room===c.room);
+  if(!job || douyinLastComment.querySelector('img')?.src===job.avatar)return;
+  const img=document.createElement('img');
+  img.alt='';img.referrerPolicy='no-referrer';img.addEventListener('error',()=>img.remove(),{once:true});
+  img.src=job.avatar;douyinLastComment.prepend(img);
+});
+window.desktop.getLiveStatus()
+  .then(renderDouyinBridgeStatus)
+  .catch(error => setDouyinBridgeMessage('读取抖音桥状态失败：' + error.message, 'error'));
 
 function clearPrices(message = '完成车辆信息并估值后显示收车价') {
   setPriceLoading(false);
@@ -1116,6 +1200,7 @@ function updateAccountButtons() {
 }
 
 function renderAccounts(accounts) {
+  cheQuotePool.accounts=accounts;
   const container = $('#accountList');
   container.replaceChildren();
   if (!accounts.length) {
@@ -1131,8 +1216,9 @@ function renderAccounts(accounts) {
     cooldown: '已登录，估价冷却中', deleting: '删除中'
   };
   accounts.forEach(account => {
+    const current=cheQuotePool.key==='che300:'+account.id;
     const card = document.createElement('section');
-    card.className = 'account-item' + (account.active ? ' current' : '');
+    card.className = 'account-item' + (current ? ' current' : '');
     const loginBusy = Boolean(account.loginInProgress || ['authenticating', 'syncing'].includes(account.status));
     if (loginBusy) {
       const spinner = document.createElement('span');
@@ -1143,7 +1229,7 @@ function renderAccounts(accounts) {
     }
     const heading = document.createElement('strong');
     heading.textContent = account.label + (account.phoneMask ? ' · ' + account.phoneMask : '')
-      + (account.active ? ' · 当前使用' : '');
+      + (current ? ' · 当前使用' : '');
     const status = document.createElement('span');
     status.className = 'account-item-status' + (['authenticated', 'cooldown'].includes(account.status) ? ' verified' : '');
     status.textContent = statuses[account.status] || '待验证';
@@ -1155,8 +1241,9 @@ function renderAccounts(accounts) {
     login.addEventListener('click', () => accountAction(() => window.desktop.loginAccount(account.id)));
     const select = document.createElement('button');
     select.type = 'button';
-    select.textContent = account.active ? '使用中' : '切换使用';
-    select.dataset.current = String(account.active);
+    select.textContent = current ? '使用中' : '切换使用';
+    select.dataset.current = String(current);
+    select.dataset.checking=String(account.status!=='authenticated'||loginBusy);
     select.addEventListener('click', () => accountAction(() => window.desktop.selectAccount(account.id)));
     const refresh = document.createElement('button');
     refresh.type = 'button';
@@ -1258,6 +1345,14 @@ function renderCatalogUpdateProgress(progress) {
 
 window.desktop.onFullCatalogProgress(renderCatalogUpdateProgress);
 window.desktop.onAccounts(renderAccounts);
+function syncCheQuotePool(state){
+  const revision=Number(state?.revision)||0;
+  if(revision<cheQuotePool.revision)return;
+  cheQuotePool.key=state.current||'';cheQuotePool.revision=revision;
+  renderAccounts(cheQuotePool.accounts);
+}
+window.desktop.onQuotePool(syncCheQuotePool);
+window.desktop.getQuotePool().then(syncCheQuotePool).catch(()=>{});
 window.desktop.onQuoteUpdated(({ requestId, inputKey, result }) => {
   if (!result?.ok || result.cached || currentEstimateKey() !== inputKey) return;
   if (requestId !== latestQuoteRequestId) {

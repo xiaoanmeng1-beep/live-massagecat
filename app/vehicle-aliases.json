@@ -1,0 +1,32 @@
+{
+  "preferredBrandForBareCodes": "奥迪",
+  "seriesAliases": [
+    {"brand": "长安", "series": "长安Lumin", "names": ["糯玉米"], "requiresVehicleContext": true, "source": "https://static.cninfo.com.cn/finalpage/2022-08-18/1214317399.PDF"},
+    {"brand": "特斯拉", "series": "Model 3", "names": ["毛豆3", "毛豆三"]},
+    {"brand": "丰田", "series": "赛那SIENNA", "names": ["赛那", "塞纳", "赛纳"]}
+  ],
+  "bodyBadges": [
+    {"brand": "别克", "series": "英朗", "badges": {"xt": "两厢", "gt": "三厢"}}
+  ],
+  "generationBoundaries": [
+    {
+      "brand": "特斯拉", "series": "Model 3", "firstNewYear": 2023, "firstNewRegistration": "2023-10",
+      "source": "https://www.tesla.cn/campaign/sales-promo-overview"
+    }
+  ],
+  "trimFamilies": [
+    {
+      "brand": "别克",
+      "series": "别克GL8",
+      "names": ["陆尊", "ES陆尊"],
+      "trim": "陆尊"
+    },
+    {
+      "brand": "别克",
+      "series": "别克GL8新能源",
+      "refinesSeries": "别克GL8",
+      "names": ["陆尊PHEV", "PHEV陆尊", "陆尊插混", "插混陆尊", "陆尊新能源", "新能源陆尊"],
+      "trim": "陆尊"
+    }
+  ]
+}

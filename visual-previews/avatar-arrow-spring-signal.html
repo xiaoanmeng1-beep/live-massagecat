@@ -1,0 +1,87 @@
+<div id="avatar-arrow-duet" lang="zh-CN">
+  <div class="duet-pair">
+    <section aria-label="弹一下，立体箭头蓄力后指向头像">
+      <h3><span class="duet-letter">A</span>弹一下</h3>
+      <div class="duet-live">
+        <div class="duet-host"><b>杰</b><span>阿杰说车</span></div>
+        <div class="duet-lane" role="img" aria-label="一支玻璃箭头在提示框上方压低、向上弹起，在头像下回稳">
+          <div class="duet-spring"><i class="duet-depth"></i><i class="duet-face"></i><i class="duet-bevel"></i></div>
+        </div>
+        <div class="duet-cta"><strong>点头像</strong><small>关注 · 私信</small></div>
+        <div class="duet-banner"><span>直播估价</span><strong>爱车值多少？</strong><small>评论发车型、年份和公里数</small></div>
+        <div class="duet-queue"><span>排队中 <b>2</b> 人</span><small>小林　阿岩</small></div>
+      </div>
+    </section>
+    <section aria-label="追上去，三段流水箭羽汇成一支箭">
+      <h3><span class="duet-letter">B</span>追上去</h3>
+      <div class="duet-live">
+        <div class="duet-host"><b>杰</b><span>阿杰说车</span></div>
+        <div class="duet-lane" role="img" aria-label="三段箭羽从提示框往头像依次亮起，收拢为一支完整的上箭头">
+          <i class="duet-fin duet-bottom"></i><i class="duet-fin duet-mid"></i><i class="duet-fin duet-top"></i>
+        </div>
+        <div class="duet-cta"><strong>点头像</strong><small>关注 · 私信</small></div>
+        <div class="duet-banner"><span>直播估价</span><strong>爱车值多少？</strong><small>评论发车型、年份和公里数</small></div>
+        <div class="duet-queue"><span>排队中 <b>2</b> 人</span><small>小林　阿岩</small></div>
+      </div>
+    </section>
+  </div>
+  <div class="viz-row duet-tools"><button class="btn" type="button" data-replay>同步重播</button><button class="btn btn-ghost" type="button" data-toggle>暂停</button></div>
+</div>
+<style>
+  #avatar-arrow-duet .duet-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  #avatar-arrow-duet h3{display:flex;align-items:center;gap:8px;margin:0 0 9px;font-weight:500}
+  #avatar-arrow-duet .duet-letter{color:var(--muted-foreground);font:500 12px ui-monospace,monospace;letter-spacing:.04em}
+  #avatar-arrow-duet .duet-live{position:relative;isolation:isolate;overflow:hidden;height:242px;border-radius:18px;color:#182e3e;font:500 14px/1.3 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:radial-gradient(ellipse at 0% 35%,#cee4ed 0,transparent 48%),radial-gradient(ellipse at 96% 9%,#becfe2 0,transparent 64%),linear-gradient(130deg,#e9eff3 12%,#f4f3ed 82%);box-shadow:inset 0 0 0 1px #647c8f38}
+  #avatar-arrow-duet .duet-host{position:absolute;top:15px;left:16px;display:flex;align-items:center;gap:8px;height:43px;padding:3px 15px 3px 3px;box-sizing:border-box;background:#203849e6;color:#fbfdff;border-radius:24px;font-weight:600}
+  #avatar-arrow-duet .duet-host b{display:grid;place-items:center;width:37px;height:37px;border-radius:50%;background:radial-gradient(ellipse at 28% 22%,#96c7c4,transparent 63%),linear-gradient(140deg,#498384,#234751);box-shadow:inset 0 0 0 1px #f3fffe99;font-size:17px}
+  #avatar-arrow-duet .duet-cta,#avatar-arrow-duet .duet-banner,#avatar-arrow-duet .duet-queue{box-sizing:border-box;background:linear-gradient(135deg,#ffffffeb,#f7fbff9c);border:1px solid #ffffffed;box-shadow:0 3px 10px #54708715,inset 0 -1px 0 #5871820c}
+  #avatar-arrow-duet .duet-cta{position:absolute;top:137px;left:9px;width:67px;height:46px;display:grid;align-content:center;text-align:center;border-radius:12px;gap:1px}
+  #avatar-arrow-duet .duet-cta strong{font-size:14px}
+  #avatar-arrow-duet .duet-cta small{font-size:11px;color:#3e5969}
+  #avatar-arrow-duet .duet-banner{position:absolute;top:75px;left:89px;right:12px;height:108px;border-radius:15px;display:flex;flex-direction:column;justify-content:center;align-items:start;padding:8px clamp(8px,2.3vw,20px);gap:4px}
+  #avatar-arrow-duet .duet-banner span{font-size:11px;letter-spacing:.14em;color:#486676}
+  #avatar-arrow-duet .duet-banner strong{font-size:clamp(17px,2.7vw,24px);letter-spacing:-.04em}
+  #avatar-arrow-duet .duet-banner small,#avatar-arrow-duet .duet-queue small{font-size:12px;color:#465e6b}
+  #avatar-arrow-duet .duet-queue{position:absolute;left:9px;right:12px;bottom:16px;height:31px;display:flex;align-items:center;justify-content:space-between;border-radius:9px;padding:0 12px;font-size:12px}
+  #avatar-arrow-duet .duet-lane{position:absolute;top:58px;left:17px;width:41px;height:78px;pointer-events:none}
+  #avatar-arrow-duet .duet-lane i{position:absolute;display:block;inset:0}
+  #avatar-arrow-duet .duet-spring{--cut:polygon(50% 0%,99% 43%,73% 43%,73% 95%,27% 95%,27% 43%,1% 43%);position:absolute;left:2px;bottom:4px;width:37px;height:37px;transform-origin:50% 93%;animation:duet-launch 3.7s infinite}
+  #avatar-arrow-duet .duet-depth{clip-path:var(--cut);background:#1c526d;transform:translateY(3px)}
+  #avatar-arrow-duet .duet-face{clip-path:var(--cut);background:linear-gradient(123deg,#e8feff 9%,#9ee2ec 33%,#68b7ce 54%,#347896 91%)}
+  #avatar-arrow-duet .duet-bevel{clip-path:polygon(50% 3%,90% 39%,68% 33%,68% 87%,56% 88%,56% 28%);background:linear-gradient(#f0ffffed,#d5fcff63)}
+  @keyframes duet-launch{
+    0%,9%,100%{transform:translateY(0) scale(1,1);animation-timing-function:ease-in-out}
+    21%{transform:translateY(2px) scale(1.23,.64);animation-timing-function:cubic-bezier(.17,.8,.26,1)}
+    32%{transform:translateY(-31px) scale(.89,1.15);animation-timing-function:ease-in-out}
+    43%{transform:translateY(-23px) scale(1.06,.94);animation-timing-function:ease-in-out}
+    52%,72%{transform:translateY(-27px) scale(1,1);animation-timing-function:cubic-bezier(.45,0,.32,1)}
+    93%{transform:translateY(0) scale(1,1)}
+  }
+  #avatar-arrow-duet .duet-fin{background:linear-gradient(120deg,#086b7f 18%,#26a9b1 52%,#09657f 86%);clip-path:var(--open);opacity:.32;animation:duet-assemble 3.7s ease-in-out infinite,var(--light) 3.7s ease-in-out infinite}
+  #avatar-arrow-duet .duet-top{--open:polygon(9% 30%,50% 13%,91% 30%,91% 40%,50% 24%,9% 40%);--closed:polygon(7% 29%,50% 6%,93% 29%,93% 30%,50% 30%,7% 30%);--light:duet-ignite-top}
+  #avatar-arrow-duet .duet-mid{--open:polygon(9% 56%,50% 39%,91% 56%,91% 66%,50% 50%,9% 66%);--closed:polygon(34% 29%,50% 29%,66% 29%,66% 43%,50% 43%,34% 43%);--light:duet-ignite-mid}
+  #avatar-arrow-duet .duet-bottom{--open:polygon(9% 82%,50% 65%,91% 82%,91% 92%,50% 76%,9% 92%);--closed:polygon(34% 42%,50% 42%,66% 42%,66% 56%,50% 56%,34% 56%);--light:duet-ignite-bottom}
+  @keyframes duet-assemble{0%,35%,98%,100%{clip-path:var(--open)}55%,78%{clip-path:var(--closed)}}
+  @keyframes duet-ignite-bottom{0%,6%,98%,100%{opacity:.32}15%,78%{opacity:1}}
+  @keyframes duet-ignite-mid{0%,15%,98%,100%{opacity:.32}24%,78%{opacity:1}}
+  @keyframes duet-ignite-top{0%,24%,98%,100%{opacity:.32}33%,78%{opacity:1}}
+  #avatar-arrow-duet .duet-tools{margin-top:12px}
+  #avatar-arrow-duet[data-paused] .duet-lane *{animation-play-state:paused}
+  @media(max-width:540px){#avatar-arrow-duet .duet-pair{grid-template-columns:1fr;gap:14px}}
+  @media(prefers-reduced-motion:reduce){#avatar-arrow-duet:not([data-manual]) .duet-lane *{animation-play-state:paused}}
+</style>
+<script>
+(()=>{
+  const root=document.getElementById('avatar-arrow-duet');
+  const toggle=root.querySelector('[data-toggle]'), replay=root.querySelector('[data-replay]');
+  const media=matchMedia('(prefers-reduced-motion: reduce)');
+  function pause(value){root.toggleAttribute('data-paused',value);toggle.textContent=value?'播放':'暂停'}
+  pause(media.matches);
+  media.addEventListener('change',e=>{root.removeAttribute('data-manual');pause(e.matches)});
+  toggle.addEventListener('click',()=>{root.setAttribute('data-manual','');pause(!root.hasAttribute('data-paused'))});
+  replay.addEventListener('click',()=>{
+    root.setAttribute('data-manual','');pause(false);
+    for(const a of root.getAnimations({subtree:true})){a.currentTime=0}
+  });
+})();
+</script>

@@ -28,7 +28,12 @@ source.exec('VACUUM INTO ' + sqlString(destinationFile));
 source.close();
 
 const seed = new DatabaseSync(destinationFile);
-seed.exec('DELETE FROM quotes; VACUUM;');
+// Only scrub the generated seed, never the running database. Older databases
+// may predate either live-comment table.
+for(const table of ['live_match_failures','live_comments','quotes']) {
+  if(seed.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))seed.exec('DELETE FROM '+table);
+}
+seed.exec('VACUUM;');
 const counts = {
   brands: seed.prepare('SELECT COUNT(*) AS count FROM brands').get().count,
   series: seed.prepare('SELECT COUNT(*) AS count FROM series').get().count,

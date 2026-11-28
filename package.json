@@ -23,6 +23,32 @@
     "files": [
       "main.js",
       "data-store.js",
+      "failure-export.js",
+      "failure-ipc.js",
+      "live-board.js",
+      "voice-library.js",
+      "voice-store.js",
+      "resident-voice.js",
+      "live-parser.js",
+      "title-characters.js",
+      "quote-account-maintenance.js",
+      "quote-settings.js",
+      "quote-account-pool.js",
+      "quote-replay.js",
+      "guazi-page-client.js",
+      "guazi-service.js",
+      "guazi-electron.js",
+      "guazi-auth-preload.js",
+      "vehicle-photos.js",
+      "quote-learning.js",
+      "catalog-additions.js",
+      "catalog-additions.json",
+      "douyin-bridge.js",
+      "douyin-bridge-process.js",
+      "douyin-bridge-service.mjs",
+      "douyin-chat-avatars.mjs",
+      "bridge-ws.mjs",
+      "THIRD-PARTY-3D-PRINTER-LIVE-LICENSE",
       "portable-data.js",
       "latest-request.js",
       "embedded-login.js",
@@ -31,12 +57,29 @@
       "price-decoder.js",
       "app/**/*"
     ],
+    "asarUnpack": [
+      "app/tts/*.py",
+      "douyin-bridge-service.mjs",
+      "douyin-chat-avatars.mjs",
+      "bridge-ws.mjs"
+    ],
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
-      "target": ["dir"]
+      "target": [
+        "dir"
+      ]
     },
     "win": {
-      "target": ["dir"]
+      "icon": "build/icon.ico",
+      "target": [
+        "dir"
+      ]
     }
+  },
+  "dependencies": {
+    "@paper-design/shaders": "0.0.82",
+    "pinyin-pro": "3.29.5",
+    "quill": "2.0.3"
   }
 }

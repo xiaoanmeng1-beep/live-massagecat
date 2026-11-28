@@ -1,0 +1,94 @@
+/* The platform supplies the avatar and name above this note. The shared pointer
+   lane is below their original reserved area; neither animation nor skin moves it. */
+.board-host {min-width:0;row-gap:0}
+.board-masthead:has(.host-guide:not([hidden])) {
+  grid-template-columns:clamp(78px,21cqi,140px) minmax(0,1fr);
+}
+.host-guide {
+  --guide-lane:clamp(36px,8.6cqi,58px);
+  position:relative;box-sizing:border-box;width:100%;min-width:0;
+  padding-top:calc(var(--guide-lane) + 7px);pointer-events:none;
+}
+.host-guide[hidden],.host-guide-detail[hidden] {display:none}
+.host-guide-pointer {
+  /* Keep pointing at the same platform position when the caption gets wider. */
+  position:absolute;left:clamp(15.95px,4.35cqi,30.16px);top:0;height:var(--guide-lane);aspect-ratio:2/3;
+  transform:translateX(-50%);overflow:hidden;
+}
+/* The three shapes share the preview's clock: light from the caption upwards,
+   then close the two lower fins into a single shaft. No layout animation. */
+.guide-fin {
+  position:absolute;inset:0;clip-path:var(--joined);
+  background:linear-gradient(120deg,#086b7f 18%,#26a9b1 52%,#09657f 86%);
+}
+.guide-fin-bottom {
+  --spread:polygon(9% 82%,50% 65%,91% 82%,91% 92%,50% 76%,9% 92%);
+  --joined:polygon(34% 42%,50% 42%,66% 42%,66% 56%,50% 56%,34% 56%);
+  --light:guide-light-bottom;
+}
+.guide-fin-middle {
+  --spread:polygon(9% 56%,50% 39%,91% 56%,91% 66%,50% 50%,9% 66%);
+  --joined:polygon(34% 29%,50% 29%,66% 29%,66% 43%,50% 43%,34% 43%);
+  --light:guide-light-middle;
+}
+.guide-fin-top {
+  --spread:polygon(9% 30%,50% 13%,91% 30%,91% 40%,50% 24%,9% 40%);
+  --joined:polygon(7% 29%,50% 6%,93% 29%,93% 30%,50% 30%,7% 30%);
+  --light:guide-light-top;
+}
+@keyframes guide-join {0%,35%,98%,100%{clip-path:var(--spread)}55%,78%{clip-path:var(--joined)}}
+@keyframes guide-light-bottom {0%,6%,98%,100%{opacity:.32}15%,78%{opacity:1}}
+@keyframes guide-light-middle {0%,15%,98%,100%{opacity:.32}24%,78%{opacity:1}}
+@keyframes guide-light-top {0%,24%,98%,100%{opacity:.32}33%,78%{opacity:1}}
+/* Two separate landings, then rest. The reserved 7px covers the full travel. */
+@keyframes guide-double-hop {
+  0%,10%,19%,27%,100% {transform:translateY(0);animation-timing-function:ease-out}
+  14% {transform:translateY(-6px);animation-timing-function:ease-in}
+  23% {transform:translateY(-4px);animation-timing-function:ease-in}
+}
+@media (prefers-reduced-motion:no-preference) {
+  .guide-fin {animation:guide-join 3.7s ease-in-out infinite,var(--light) 3.7s ease-in-out infinite}
+  .host-guide .host-caption {animation:guide-double-hop 5.6s infinite}
+}
+.host-guide .host-caption {
+  display:block;max-width:100%;width:100%;margin:0 auto;
+  box-sizing:border-box;padding:6px 7px;text-align:center;
+  font-size:clamp(13px,3cqi,19px);
+  white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.28;
+}
+.host-guide-lead,.host-guide-detail {display:block}
+.host-guide-detail {font-weight:540}
+.host-guide[data-skin=bubble] .host-caption {border-radius:8px}
+.host-guide[data-skin=chevron] .host-caption {
+  width:100%;border-radius:999px;padding-inline:5px;
+  box-shadow:inset 0 0 0 1px rgb(62 108 120 / .16),var(--glass-shine);
+}
+.host-guide[data-skin=route] .host-caption {
+  width:100%;padding:0;border-radius:5px;overflow:hidden;text-align:start;
+  box-shadow:inset 0 1px 0 #fff9,0 2px 5px rgb(40 76 91 / .14);
+}
+.host-guide[data-skin=route] :is(.host-guide-lead,.host-guide-detail) {padding:5px 8px}
+.host-guide[data-skin=route] .host-guide-detail {
+  border-top:1px solid rgb(49 93 104 / .17);background:rgb(80 130 143 / .10);
+  color:#244855;font-weight:650;
+}
+.host-guide-settings {display:grid;gap:8px;color:#23414d}
+.host-guide-settings :is(label,legend) {font-size:12px;font-weight:600}
+.host-guide-settings textarea {
+  box-sizing:border-box;width:100%;min-height:52px;resize:vertical;
+  border:1px solid var(--glass-edge);border-radius:7px;background:var(--glass-field);
+  padding:7px 9px;color:var(--text);font:inherit;font-size:14px;line-height:1.45;
+}
+.host-guide-settings textarea:focus-visible {outline:2px solid #417b91;outline-offset:1px}
+.host-guide-settings fieldset {min-width:0;margin:2px 0 0;padding:0;border:0}
+.host-guide-settings legend {padding:0;margin-bottom:6px}
+.host-guide-choices {display:flex;flex-wrap:wrap;gap:5px}
+.host-guide-choices label {position:relative;cursor:pointer}
+.host-guide-choices input {position:absolute;opacity:0;width:1px;height:1px}
+.host-guide-choices span {
+  display:block;padding:5px 8px;border:1px solid var(--line);border-radius:6px;
+  background:var(--glass-field);font-size:12px;font-weight:500;
+}
+.host-guide-choices input:checked+span {color:#164a59;background:#d7ecef;border-color:#638d97}
+.host-guide-choices input:focus-visible+span {outline:2px solid #286b86;outline-offset:2px}
+.host-guide-settings p {margin:0;color:#425b65;font-size:11px;line-height:1.5}

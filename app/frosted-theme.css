@@ -1,0 +1,127 @@
+/* Shared material for the public board and operator controls. Do not blur content:
+   only the backdrop is sampled. Opaque equivalents also work without a GPU. */
+:root {
+  --text:#132730;
+  --line:rgba(110,149,165,.30);
+  --glass-base:#ecf4f5;
+  --glass-hero:#f2f7f7;
+  --glass-field:#f5f9fa;
+  --glass-toolbar:#e6eff2;
+  --glass-filter:none;
+  --glass-edge:rgba(255,255,255,.88);
+  --glass-shine:inset 0 1px 1px #ffffffbd,0 3px 9px rgba(40,76,91,.11);
+}
+@supports (backdrop-filter:blur(1px)) {
+  @media not (prefers-reduced-transparency:reduce) {
+    :root {
+      --glass-base:linear-gradient(124deg,rgba(255,255,255,.68),rgba(236,247,250,.48) 52%,rgba(237,251,255,.45));
+      --glass-hero:linear-gradient(123deg,rgba(255,255,255,.86),rgba(241,249,249,.71) 48%,rgba(229,246,253,.68));
+      --glass-field:rgba(249,255,255,.52);
+      --glass-toolbar:rgba(231,242,244,.48);
+      --glass-filter:blur(13px) saturate(1.08);
+    }
+  }
+}
+html {background:#b6d6df}
+body {
+  min-height:100vh;
+  color:var(--text);
+  background:
+    radial-gradient(ellipse at 0 12%,#f1e6db 0%,transparent 46%),
+    radial-gradient(ellipse at 8% 102%,#70afac,transparent 50%),
+    radial-gradient(ellipse at 93% 28%,#8abada 0%,transparent 48%),
+    radial-gradient(ellipse at 74% 108%,#a9cfe6,transparent 55%),
+    linear-gradient(128deg,#d4e1df 0%,#bddae0 39%,#c3dff1 72%,#9fc6e2);
+  background-attachment:fixed;
+}
+/* Preserve the real title bar, saved splitter width, banner footprint and host anchor. */
+#boardShell {width:100%}
+#liveBoard {background:transparent}
+.board-masthead .valuation-banner,.host-caption,#liveBoard .queue-box,
+#liveBoard .history-box .quote-card,.account-column>.settings-group,
+#liveBoard .active-box:not(.quote-flight-layer) .featured-quote {
+  background:var(--glass-base);
+  border:1px solid var(--glass-edge);
+  box-shadow:var(--glass-shine);
+  backdrop-filter:var(--glass-filter);
+}
+.board-masthead .valuation-banner {color:#102029}
+.host-caption {color:#183039}
+#liveBoard .queue-box {height:clamp(32px,7.5cqi,44px);padding-block:0}
+.board-avatar {background:rgba(219,234,224,.85);color:#264c48}
+#liveBoard .active-box:not(.quote-flight-layer) .featured-quote {
+  background:var(--glass-hero);color:#12232e;
+}
+/* The moving shell is opaque enough not to double-print text over the next quote.
+   Only transform/opacity animate; the stationary outline keeps its own shader. */
+#liveBoard .quote-flight-surface {
+  transform-origin:0 0;
+  background:linear-gradient(126deg,#f1f6f4,#ecf6f8 60%,#d9eaf1);
+  border:1px solid #f7ffff;
+}
+#liveBoard:has(.quote-flight-layer) #boardHistory > :first-child,
+#liveBoard .quote-flight-layer.active-box>.featured-quote {
+  background:transparent;border-color:transparent;box-shadow:none;backdrop-filter:none;
+}
+#liveBoard .quote-card .board-vehicle-photo,#liveBoard .board-vehicle-photo img {background:transparent}
+#liveBoard .board-vehicle-photo img {transform:scale(.84);mix-blend-mode:multiply}
+/* The right-hand price stays vertically centered in the entire history card,
+   even when the model or registration wraps. */
+#boardHistory {gap:4px}
+#boardHistory .quote-card {
+  grid-template-columns:clamp(38px,13.6cqi,90px) minmax(0,1fr) max-content;
+  grid-template-areas:"photo info amount";
+  gap:1px clamp(4px,1.2cqi,9px);
+  padding:3px clamp(5px,1.5cqi,10px);
+}
+#boardHistory .card-info {grid-area:info;gap:1px}
+#boardHistory .board-vehicle-photo {grid-area:photo}
+#boardHistory .board-person {gap:4px}
+#boardHistory .board-avatar {width:clamp(17px,4cqi,24px)}
+#boardHistory .board-name {font-size:clamp(15px,3.65cqi,22px);font-weight:600;line-height:1.18;color:#334650}
+#boardHistory .car-name {color:#10242e;font-size:clamp(20px,4.8cqi,32px);font-weight:700;line-height:1.16}
+#boardHistory .quote-context {color:#30454e;font-size:clamp(16px,3.65cqi,24px);font-weight:550;line-height:1.22;overflow-wrap:anywhere}
+#boardHistory .quote-context > span {display:inline-block;max-width:100%}
+#boardHistory .card-price {
+  grid-area:amount;justify-self:end;align-self:center;
+  color:#000;font-size:clamp(16px,7cqi,42px);line-height:1.04;letter-spacing:-.035em;
+}
+#boardHistory .card-price small {font-size:.70em;font-weight:650}
+/* Free up width for the text without moving the amount out of the right side. */
+@container (max-width:270px) {
+  #boardHistory .quote-card {
+    grid-template-columns:minmax(0,1fr) max-content;
+    grid-template-areas:"photo amount" "info amount";
+  }
+  #boardHistory .board-vehicle-photo {width:min(100%,44px)}
+  #boardHistory .card-price {font-size:clamp(11px,6.2cqi,18px)}
+}
+.featured-quote .card-price {color:#101e27}
+#liveBoard>.active-box:not(.quote-flight-layer) {overflow:visible}
+.quote-edge-viewport {--rim-bleed:6px;overflow:clip;overflow-clip-margin:var(--rim-bleed);clip-path:none}
+.quote-edge-viewport::before {
+  content:"";position:absolute;inset:0;border-radius:inherit;
+  border:1px solid #a2b6c9;box-shadow:0 0 5px #99bcca55;
+}
+.quote-edge-viewport:has(#quoteEdge[data-active])::before {opacity:0}
+#quoteEdge[data-paper-shader] {
+  opacity:.86;
+  mask-image:
+    linear-gradient(to bottom,transparent calc(20% - var(--rim-bleed)),black 20.5%,black 79.5%,transparent calc(80% + var(--rim-bleed))),
+    linear-gradient(to right,transparent calc(20% - var(--rim-bleed)),black 20.5%,black 79.5%,transparent calc(80% + var(--rim-bleed)));
+  mask-composite:intersect;
+}
+.account-column>.settings-group {margin-bottom:8px;border-radius:11px;color:#142733}
+.settings-group>summary {padding:10px 12px;font-size:14px}
+.settings-group>summary:hover {background:#ffffff24;border-radius:inherit}
+.settings-group[open]>:is(.settings-body,.banner-copy-editor,.douyin-bridge-panel,.comment-test-panel,.catalog-update-panel,.log-panel) {background:transparent}
+.banner-editor-surface,.account-item,.login-panel,.comment-test-panel textarea,.douyin-bridge-field input,
+.form-panel,.vehicle-photo-card,.picker-dialog,.inline-picker,.log-output {
+  background:var(--glass-field);border-color:var(--glass-edge);
+}
+.banner-editor-surface {box-shadow:inset 0 1px 1px #fff8}
+.banner-format-tools.ql-toolbar.ql-snow,.login-panel-header,.picker-header,.log-header {background:var(--glass-toolbar)}
+#bannerRichInput .ql-editor {min-height:142px;color:#132733}
+#bannerCopyHint,.comment-test-help,.account-policy,.douyin-bridge-hint {color:#425b65}
+.account-item.current {border-color:#6794aa}
+.log-panel .log-header,.log-header button,.log-output {color:#294552;border-color:var(--line)}

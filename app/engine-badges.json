@@ -1,0 +1,60 @@
+[
+  {
+    "brand": "大众", "series": "途岳", "years": [2019],
+    "engines": {"1.4t": ["280tsi"], "2.0t": ["330tsi"]},
+    "source": "https://www.csvw.com/campaign/mediadownload-tharu-news01.html"
+  },
+  {
+    "brand": "大众", "series": "蔚揽(进口)", "years": [2016],
+    "engines": {"1.4t": ["280tsi"], "2.0t": ["380tsi"]},
+    "source": "https://highfil.com/UpLoadFile/IntroductionFolder/highfil/40fe9e07b7ce4a619be2b67b3fdfaf4e.pdf"
+  },
+  {
+    "brand": "别克", "series": "威朗",
+    "engines": {"1.5l": ["15s"]}
+  },
+  {
+    "brand": "别克", "series": "君威", "years": [2017, 2018, 2019, 2020],
+    "engines": {"1.5t": ["20t"], "2.0t": ["28t"]},
+    "source": "https://www.saicmotor.com/chinese/xwzx/xwk/2017/48919.shtml"
+  },
+  {
+    "brand": "雪铁龙", "series": "天逸 C5 AIRCROSS",
+    "engines": {"1.6t": ["350thp", "360thp"], "1.8t": ["380thp", "400thp"]}
+  },
+  {
+    "brand": "丰田", "series": "雷凌",
+    "engines": {"1.2t": ["185t"]},
+    "source": "https://www.gac-toyota.com.cn/download/configpdf/levin.pdf"
+  },
+  {
+    "brand": "大众", "series": "速腾", "years": [2019, 2020, 2021, 2022, 2023],
+    "engines": {"1.4t": ["280tsi"]},
+    "source": "https://cjml-auto.oss-cn-shanghai.aliyuncs.com/pdf/1743601518201.pdf"
+  },
+  {
+    "brand": "本田", "series": "思域", "years": [2016, 2017, 2019, 2020, 2021],
+    "engines": {"1.5t": ["220turbo"], "1.0t": ["180turbo"]},
+    "source": "https://www.honda.com.cn/news/20190517.html"
+  },
+  {
+    "brand": "奔驰", "series": "奔驰G级AMG(进口)",
+    "engines": {"6.0t": ["g65"]},
+    "source": "https://media.mercedes-benz.com/en/article/0b7d4e07-7832-43d1-8654-8a69b7adb810"
+  },
+  {
+    "brand": "奥迪", "series": "奥迪A6L", "years": [2025, 2026],
+    "engines": {"3.0t": ["55tfsi"]},
+    "source": "https://www.audi.cn/content/dam/OneWeb/faw_vw/pdf/2025/a6l_new/A6L_%E8%BD%A6%E5%9E%8B%E6%8A%98%E9%A1%B5.pdf"
+  },
+  {
+    "brand": "奥迪", "series": "奥迪A7(进口)", "years": [2017],
+    "engines": {"3.0t": ["50tfsi"]},
+    "source": "https://www.guazi.com/car-detail/c172940677243884.html"
+  },
+  {
+    "brand": "雪佛兰", "series": "迈锐宝XL", "years": [2020],
+    "engines": {"2.0t": ["550t"]},
+    "source": "https://www.saicmotor.com/m/xwzx/xwk/2020/53968.shtml"
+  }
+]

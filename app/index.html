@@ -4,17 +4,50 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>二手车估价</title>
+  <link rel="stylesheet" href="../node_modules/quill/dist/quill.snow.css">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./frosted-theme.css">
+  <link rel="stylesheet" href="./host-guide.css">
+  <link rel="stylesheet" href="./voice.css">
 </head>
 <body>
   <div class="titlebar-drag-region" aria-hidden="true"></div>
 
-  <main class="app-shell">
-    <div class="valuation-column">
-    <section class="valuation-banner" aria-label="查价公屏">
-      <div class="valuation-banner-primary" id="valuationBannerPrimary"></div>
-      <div class="valuation-banner-ticker"><span id="valuationBannerTicker"></span></div>
+  <main class="app-shell" id="boardShell">
+    <div class="valuation-column" role="region" aria-label="估价公屏" tabindex="0">
+    <div id="boardViewport" class="board-viewport">
+    <div id="boardContent" class="board-content">
+    <header class="board-masthead">
+      <div class="board-host">
+        <div class="host-guide" id="hostGuide" data-skin="bubble">
+          <span class="host-guide-pointer" aria-hidden="true">
+            <i class="guide-fin guide-fin-bottom"></i><i class="guide-fin guide-fin-middle"></i><i class="guide-fin guide-fin-top"></i>
+          </span>
+          <span class="host-caption"><span class="host-guide-lead">点头像</span><span class="host-guide-detail">关注·私信</span></span>
+        </div>
+      </div>
+      <section id="valuationBanner" class="valuation-banner banner-rich-text" aria-label="公屏文案"></section>
+    </header>
+    <section class="live-board" id="liveBoard" aria-label="直播估价公屏">
+      <section class="board-box queue-box">
+        <h2>排队中 <span id="queueCount">0人</span></h2>
+        <ol id="boardQueue" aria-label="排队顺序"></ol><p id="queueEmpty">暂无排队观众</p>
+      </section>
+      <section class="active-box" aria-label="最新完成的报价" aria-live="polite">
+        <div id="boardCurrent"></div>
+        <div class="quote-edge-viewport" aria-hidden="true"><div id="quoteEdge"></div></div>
+      </section>
+      <section class="board-box history-box">
+        <h2>最近报价</h2>
+        <ol id="boardHistory" aria-live="polite"></ol>
+      </section>
     </section>
+    </div>
+    </div>
+    <div id="boardHeightDivider" class="board-height-divider" role="separator" tabindex="0"
+      aria-label="调整左侧公屏高度" aria-orientation="horizontal" aria-controls="boardViewport"
+      title="上下拖动调整公屏高度，双击恢复自动高度"></div>
+    <div class="manual-fields">
     <section class="form-panel" aria-label="车辆信息">
       <button class="form-row" id="vehicleField" type="button">
         <span class="row-label">车型</span>
@@ -74,10 +107,14 @@
       <p id="vehiclePhotoNote">车型参考图，非实车照片</p>
     </figure>
     </div>
+    </div>
     <div id="panelDivider" class="panel-divider" role="separator" aria-label="调整左右区域宽度" aria-orientation="vertical" tabindex="0"></div>
-    <aside class="account-column">
-      <h2>账号管理</h2>
-      <button class="login-button add-account-button" id="addAccount" type="button">添加账号</button>
+    <aside class="account-column" aria-label="估价设置与操作" tabindex="0">
+      <details class="settings-group" id="accountSettings">
+      <summary>账号管理</summary><div class="settings-body">
+      <p id="quotePoolStatus" class="account-policy" role="status">正在读取报价账号队列…</p>
+      <h3>车300账号</h3>
+      <button class="login-button add-account-button" id="addAccount" type="button">添加车300账号</button>
       <section class="login-panel" id="loginPanel" hidden aria-label="账号登录">
         <header class="login-panel-header">
           <span>账号登录</span>
@@ -92,15 +129,158 @@
       </section>
       <div class="account-list" id="accountList" aria-label="账号列表"></div>
       <p class="account-policy">账号独立登录，失效时自动尝试可用备用账号。</p>
-    <section class="banner-copy-editor" aria-label="公屏文案设置">
-      <h3>公屏文案</h3>
-      <label>黄色主标题<input id="bannerPrimaryInput" type="text" maxlength="80"></label>
-      <label>滚动字幕<input id="bannerTickerInput" type="text" maxlength="120"></label>
-      <p>主标题中的 X月份会自动显示电脑当前月份。</p>
+      <h3>瓜子账号</h3>
+      <button class="login-button add-account-button" id="addGuaziAccount" type="button">添加瓜子账号并登录</button>
+      <section class="login-panel" id="guaziLoginPanel" hidden aria-label="瓜子账号登录">
+        <header class="login-panel-header"><span>瓜子账号登录</span><button class="login-button" id="closeGuaziLogin" type="button">关闭</button></header>
+        <div class="login-panel-controls">
+          <p class="auth-notice" id="guaziLoginNotice" role="status" aria-live="polite"></p>
+          <span class="login-panel-spinner" id="guaziLoginSpinner" role="status" aria-label="加载瓜子登录表单"></span>
+          <button class="login-button" id="retryGuaziLogin" type="button" hidden>重新加载</button>
+        </div>
+        <div class="login-panel-host" id="guaziLoginHost" hidden aria-label="瓜子手机号、验证码和滑块验证"></div>
+      </section>
+      <div class="account-list" id="guaziAccountList" aria-label="瓜子账号列表"></div>
+      <p id="guaziAccountMessage" class="douyin-bridge-hint" role="status" aria-live="polite"></p>
+      </div></details>
+      <details class="settings-group"><summary>抖音直播 <span id="douyinBridgeBadge" class="douyin-bridge-badge idle">已断开</span></summary>
+      <section class="douyin-bridge-panel" aria-label="抖音直播配置">
+        <label class="douyin-bridge-field" for="douyinRoomInput">
+          直播间号或直播间链接
+          <input id="douyinRoomInput" type="text" inputmode="url" autocomplete="off" placeholder="例如 123456 或直播间链接">
+        </label>
+        <p class="douyin-bridge-hint">重启后保留上次房间号。点击「连接直播间」才开始采集评论。</p>
+        <div class="douyin-bridge-actions">
+          <button id="connectDouyinBridge" type="button">连接直播间</button>
+          <button id="disconnectDouyinBridge" type="button">断开</button>
+        </div>
+        <p id="douyinBridgeMessage" class="douyin-bridge-message" role="status" aria-live="polite"></p>
+        <div class="douyin-bridge-status">
+          <span>采集进程</span><strong id="douyinProcessStatus">未启动</strong>
+          <span>应用连接</span><strong id="douyinConnectionStatus">未连接</strong>
+        </div>
+        <button id="resumeLiveQuotes" type="button" hidden>恢复报价队列</button>
+        <label class="douyin-bridge-field" for="quoteIntervalInput">报价间隔（秒）
+          <input id="quoteIntervalInput" type="number" min="1" max="3600" step="1" value="7" disabled>
+        </label>
+        <p class="douyin-bridge-hint">每条报价完成后等待该秒数，再处理下一辆；失败同样等待。修改后自动保存。</p>
+        <p id="quoteIntervalMessage" class="douyin-bridge-hint" role="status" aria-live="polite"></p>
+        <p id="douyinLastComment" class="douyin-last-comment">暂无评论</p>
+      </section>
+    </details>
+    <details class="settings-group"><summary id="commentTestTitle">评论测试</summary>
+    <section class="comment-test-panel" aria-labelledby="commentTestTitle">
+      <label for="commentTestInput">观众评论</label>
+      <textarea id="commentTestInput" maxlength="500" rows="3" placeholder="例如：16年缤智1.8 15万公里多少收"></textarea>
+      <div class="douyin-bridge-actions">
+        <button id="commentTestMatch" type="button">测试匹配</button>
+        <button id="commentTestQuote" type="button" disabled>获取报价</button>
+      </div>
+      <p class="comment-test-help">匹配只读本地车型库；获取报价先读已有报价，未命中才请求轮换账号，不进直播队列。</p>
+      <div id="commentTestResult" role="status" aria-live="polite"></div>
+      <div id="commentTestPrice" aria-live="polite"></div>
     </section>
+    </details>
+    <details class="settings-group" id="failureSettings"><summary>未入队评论</summary>
+      <div class="settings-body failure-body">
+        <div class="failure-tools"><button id="exportFailures" type="button" disabled>导出全部（CSV）</button><button id="clearFailures" type="button" disabled>清空记录</button></div>
+        <p id="failureCount"></p><ol id="failureRows" aria-label="未入队评论记录"></ol>
+        <div class="failure-tools"><button id="prevFailures" type="button" disabled>上一页</button><button id="nextFailures" type="button" disabled>下一页</button><button id="refreshFailures" type="button">刷新</button></div>
+        <p id="failureNotice" role="status"></p>
+      </div>
+    </details>
+    <details class="settings-group"><summary>公屏文案</summary>
+    <section class="banner-copy-editor" aria-label="公屏文案设置">
+      <div class="banner-editor-surface">
+        <div class="banner-format-tools" role="group" aria-label="文案格式">
+          <span class="ql-formats">
+            <select class="ql-header" aria-label="段落样式" title="段落样式"><option selected>正文</option><option value="2">标题</option><option value="3">小标题</option></select>
+            <select class="ql-font" aria-label="字体" title="字体"><option selected>默认字体</option><option value="serif">宋体</option><option value="monospace">等宽</option></select>
+            <select class="ql-size" aria-label="字号" title="字号"><option selected>自动字号</option><option value="12px">12 px</option><option value="14px">14 px</option><option value="16px">16 px</option><option value="18px">18 px</option><option value="20px">20 px</option><option value="24px">24 px</option><option value="28px">28 px</option><option value="32px">32 px</option><option value="40px">40 px</option><option value="48px">48 px</option><option value="64px">64 px</option></select>
+          </span>
+          <span class="ql-formats">
+            <button type="button" class="ql-bold" title="加粗" aria-label="加粗"></button>
+            <button type="button" class="ql-italic" title="斜体" aria-label="斜体"></button>
+            <button type="button" class="ql-underline" title="下划线" aria-label="下划线"></button>
+            <button type="button" class="ql-strike" title="删除线" aria-label="删除线"></button>
+            <select class="ql-color" title="文字颜色" aria-label="文字颜色"></select>
+            <select class="ql-background" title="文字底色" aria-label="文字底色"></select>
+          </span>
+          <span class="ql-formats">
+            <select class="ql-align" title="段落对齐" aria-label="段落对齐"></select>
+            <button type="button" class="ql-list" value="ordered" title="编号列表" aria-label="编号列表"></button>
+            <button type="button" class="ql-list" value="bullet" title="项目列表" aria-label="项目列表"></button>
+            <button type="button" class="ql-clean" title="清除格式" aria-label="清除格式"></button>
+          </span>
+          <span class="ql-formats">
+            <button type="button" data-history="undo" title="撤销" aria-label="撤销"><svg viewBox="0 0 18 18" aria-hidden="true"><path class="ql-stroke" d="M6 4 2 8l4 4M2 8h9a4 4 0 0 1 0 8"/></svg></button>
+            <button type="button" data-history="redo" title="重做" aria-label="重做"><svg viewBox="0 0 18 18" aria-hidden="true"><path class="ql-stroke" d="m12 4 4 4-4 4m4-4H7a4 4 0 0 0 0 8"/></svg></button>
+          </span>
+        </div>
+        <div id="bannerRichInput" class="banner-rich-text"></div>
+      </div>
+      <p id="bannerCopyHint">选中文字改格式，或先选格式再输入。左侧实时显示，自动保存。</p>
+    </section>
+    </details>
+    <details class="settings-group" id="voicePanel">
+      <summary>语音配置</summary>
+      <div class="settings-body voice-body">
+        <label class="voice-master"><span>自动播报</span><input id="voiceAuto" type="checkbox" role="switch" disabled><span class="switch-track" aria-hidden="true"></span></label>
+        <fieldset><legend>场景话术库</legend>
+          <div id="voiceBanks"></div>
+          <template id="voiceBankTemplate">
+            <section class="voice-bank">
+              <header><h3></h3><small data-count></small></header>
+
+              <ol class="voice-rows"></ol>
+              <div class="voice-actions"><button type="button" data-import>＋ 添加 WAV</button><button type="button" data-append>加入当前试听稿</button></div>
+            </section>
+          </template>
+        </fieldset>
+        <details id="voiceStudio"><summary>制作语音与试听</summary>
+        <fieldset><legend>声音来源</legend>
+          <select id="voiceModel" aria-label="选择语音模型"><option value="design">VoiceDesign · 提示词设计音色</option><option value="base">Base · 用参考录音生成</option></select>
+          <label id="voiceDesignFields">语气效果提示词
+          <textarea id="voiceStyle" rows="2" maxlength="400" aria-label="语气效果提示词">三十五岁左右的男声，中低音，近距离说话。像刚看完一条留言，抬头只回这个人。前半句顺口接过去，关键数字说清楚，说完自然收声。</textarea>
+          </label>
+          <div id="voiceBaseFields" hidden>
+            <div class="voice-actions"><button id="voicePickReference" type="button">选择参考 WAV</button><span id="voiceRefName"></span></div>
+            <div id="voiceRefSlot"></div>
+            <details><summary>参考原话（选填）</summary><textarea id="voiceRefText" aria-label="参考录音的原话（选填）" rows="2" maxlength="400" placeholder="留空只参考音色；填入录音的准确原话，还可以参考这句话的读法。"></textarea></details>
+            <small>选择一段你自己或获准使用的单人干声，3–30 秒。只在本机处理，不会加入直播轮播。</small>
+          </div>
+        </fieldset>
+        <fieldset><legend>目标话术</legend>
+          <textarea id="voiceText" rows="3" maxlength="300" aria-label="目标话术" placeholder="输入要朗读的完整话术，例如：想估车的朋友，把车型和年份发过来。"></textarea>
+          <label><input id="voiceClean" type="checkbox" checked> 减轻底噪和高频刺耳声</label>
+          <div class="voice-actions"><button id="voiceGenerate" type="button" disabled>生成试听稿</button><button id="voiceImport" type="button">导入 WAV</button><button id="voiceExport" type="button" title="将当前试听稿另存为 WAV 文件" disabled>导出 WAV</button></div>
+          <div id="voiceJob" hidden><progress id="voiceJobBar" aria-label="语音生成阶段" max="4"></progress><span id="voiceJobText" role="status"></span><button type="button" id="voiceCancel">取消生成</button></div>
+          <div id="voiceEngine"></div>
+          <div id="voiceDraft" hidden><strong>当前试听稿</strong><p id="voiceDraftText"></p><div id="voiceDraftSlot"></div><div class="voice-file-to"><span>把这条加入</span><div class="voice-actions" id="voiceDraftTargets"></div></div></div>
+        </fieldset>
+        </details>
+        <p id="voiceNote" role="status"></p><p id="voicePlaying" role="status"></p>
+      </div>
+    </details>
+    <details class="settings-group" id="hostGuideSettings">
+      <summary>主播头像引导</summary>
+      <div class="settings-body host-guide-settings">
+        <label for="hostGuideInput">引导文案</label>
+        <textarea id="hostGuideInput" rows="2" maxlength="80" aria-describedby="hostGuideHint" placeholder="输入头像下方要显示的文字"></textarea>
+        <fieldset><legend>提示框样式</legend>
+          <div class="host-guide-choices">
+            <label><input type="radio" name="hostGuideSkin" value="bubble" checked><span>圆角气泡</span></label>
+            <label><input type="radio" name="hostGuideSkin" value="chevron"><span>胶囊</span></label>
+            <label><input type="radio" name="hostGuideSkin" value="route"><span>双行路签</span></label>
+          </div>
+        </fieldset>
+        <p id="hostGuideHint">头像和昵称由直播平台显示。这里仅设置下方的引导框，支持换行；留空即隐藏。</p>
+        <p id="hostGuideStatus" role="status" hidden></p>
+      </div>
+    </details>
+    <details class="settings-group"><summary>车型数据</summary>
     <section class="catalog-update-panel">
       <div class="catalog-update-heading">
-        <strong>车型数据</strong>
         <button id="updateFullCatalog" type="button">后台更新车型库</button>
       </div>
       <div class="catalog-update-progress" id="catalogUpdateProgress" hidden>
@@ -111,8 +291,9 @@
         </div>
       </div>
     </section>
+    </details>
 
-    <details class="diagnostics">
+    <details class="settings-group diagnostics">
     <summary>运行日志</summary>
     <section class="log-panel">
       <header class="log-header">
@@ -160,6 +341,17 @@
     </form>
   </dialog>
 
+  <script src="../node_modules/quill/dist/quill.js"></script>
+  <script src="./board-banner.js"></script>
+  <script src="./host-guide.js"></script>
   <script src="./renderer.js"></script>
+  <script src="./board-view.js"></script>
+  <script src="./board-height.js"></script>
+  <script src="./guazi-view.js"></script>
+  <script src="./quote-settings-view.js"></script>
+  <script src="./failure-view.js"></script>
+  <script src="./voice-playback.js"></script>
+  <script src="./live-voice.js"></script>
+  <script src="./voice-view.js"></script>
 </body>
 </html>

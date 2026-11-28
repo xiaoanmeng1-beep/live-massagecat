@@ -1,11 +1,33 @@
-const { app, BrowserWindow, ipcMain, session, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, session, dialog, safeStorage, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const appIconPath = path.join(__dirname, 'app', 'icon.png');
 const { decodePriceImage, selfTest } = require('./price-decoder');
 const { DataStore } = require('./data-store');
+const { applyCatalogAdditions } = require('./catalog-additions');
+const { randomUUID } = require('node:crypto');
 const { resolveDataDirectory, initializePortableDatabase } = require('./portable-data');
-const { LatestRequest } = require('./latest-request');
+const { QuoteBoard, makeParser, attemptLiveMatch } = require('./live-board');
+const { registerFailureIpc } = require('./failure-ipc');
+const { reasonLabels: voiceReasonLabels } = require('./app/live-voice');
+const { VoiceLibrary, registerVoiceIpc } = require('./voice-library');
+let voiceLibrary;
+function voiceCue(scene,room,data={}) {
+  if (douyinBridgeSession?.active && mainWindow && !mainWindow.isDestroyed())
+    mainWindow.webContents.send('voice:cue',{scene,room,...data});
+}
+const { LatestRequest, RequestScope } = require('./latest-request');
 const { EmbeddedLogin } = require('./embedded-login');
+const { DouyinBridgeClient } = require('./douyin-bridge');
+const { DouyinBridgeProcess, DouyinBridgeSession, normalizeRoom } = require('./douyin-bridge-process');
+const { createAccountMaintenance } = require('./quote-account-maintenance');
+const { readQuoteInterval, registerQuoteSettingsIpc } = require('./quote-settings');
+const { GuaziAccounts, registerGuaziLoginIpc } = require('./guazi-electron');
+const { GuaziService, sourceVehicle } = require('./guazi-service');
+const { QuoteLearning } = require('./quote-learning');
+const { QuoteAccountPool } = require('./quote-account-pool');
+const { QuoteReplay } = require('./quote-replay');
+const { CatalogPhotos, localVehiclePhoto } = require('./vehicle-photos');
 
 // Windows may freeze fully hidden Chromium windows even when page throttling is disabled.
 // Catalog and quote extraction depend on those windows continuing to render and execute JS.
@@ -18,16 +40,22 @@ const idleQuoteWindows = new Map();
 let CHE300_PARTITION = 'persist:che300';
 let currentAccountId = 'default';
 let accounts = [];
-const ACCOUNT_ROTATION_LIMIT = 20;
-const ACCOUNT_PREFLIGHT_AT = 15;
 const ACCOUNT_CHECK_TTL = 2 * 60 * 1000;
+const legacyAccountMaintenance = createAccountMaintenance({
+  getAccount: id => accounts.find(account => account.id === id),
+  getActiveId: () => currentAccountId,
+  findBackup: findReadyBackup,
+  serialize: serializeBrowserWork,
+  activate: activateAccount,
+  log: emitLog
+});
+function scheduleAccountMaintenance(id) { if (!quotePool) return legacyAccountMaintenance(id); }
 const CATEGORY_INDEX = {
   passenger: 'passenger-car',
   energy: 'green-car',
   commercial: 'commercial-car'
 };
-const CACHE_TTL = 3 * 24 * 60 * 60 * 1000;
-const CATALOG_TTL = CACHE_TTL;
+const CATALOG_TTL = 3 * 24 * 60 * 60 * 1000;
 
 let mainWindow;
 let loginWindow;
@@ -41,14 +69,21 @@ let loginSyncRecoveryAttempted = false;
 let loginLastSyncPhase = '';
 let loginPhoneMask = '';
 let startupSessionRestore = Promise.resolve();
+let guaziSessionRestore = Promise.resolve();
 let workerWindow;
 let workerCategory = '';
 let workerBrandId = '';
 let browserQueue = Promise.resolve();
 let catalogQueue = Promise.resolve();
 let runtimeLogFile;
-let regionRequest;
 let dataStore;
+let board, parseComment, lastTestMatch;
+let guaziAccounts, guaziService, quoteLearning;
+let quotePool, quoteReplay;
+let catalogPhotos;
+let douyinBridge;
+let douyinBridgeProcess;
+let douyinBridgeSession;
 const catalogTaskPromises = new Map();
 let fullCatalogUpdatePromise = null;
 let fullCatalogProgress = { running: false, percent: 0, label: '' };
@@ -70,6 +105,171 @@ function emitLog(message, details) {
   if (logHistory.length > 200) logHistory.shift();
   console.log(`[valuation] ${entry.message}`);
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:log', entry);
+}
+
+function publishLiveStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('live:status', status);
+}
+
+function getLiveStatus() {
+  return douyinBridgeSession?.snapshot() || { state: 'closed', connected: false, room:'', process:{state:'idle'} };
+}
+
+function handleDouyinComment(comment) {
+  if (!String(comment.text || '').trim()) {
+    emitLog('收到抖音评论但正文为空，已跳过保存', { room: comment.room, name: comment.name });
+    return;
+  }
+  const {payload,...fields}=comment;
+  const id = dataStore.saveLiveComment(fields);
+  const event = { ...fields, id };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('live:comment', event);
+  try {
+    const parsed = attemptLiveMatch(parseComment,board,event,accepted=>{
+      voiceCue('admitted',comment.room,{viewer:comment.userId||comment.name});
+      // An optional image must never delay or invalidate an admitted quote.
+      try {
+        const avatar=payload?.avatarUrl || payload?.avatar_url || payload?.avatar;
+        if(!avatar || !applyQueuedAvatar({...accepted,avatar})) douyinBridgeProcess?.requestQueuedAvatar(accepted);
+      } catch(e){emitLog('已入队，忽略头像处理异常',{id,message:e.message});}
+    });
+    if (parsed.code==='REPEAT_VIEWER_QUOTE') emitLog('近期重复询价已跳过',{id});
+    if (!parsed.ok && !parsed.ignored) {
+      if (Object.hasOwn(voiceReasonLabels,parsed.code))
+        voiceCue('missing',comment.room,{name:comment.name,viewer:comment.userId||comment.name,code:parsed.separateVehicles?'MULTIPLE_CARS':parsed.code});
+      emitLog('直播评论未入队', { id, code: parsed.code, reason: parsed.reason });
+      if(dataStore.recordMatchFailure(id,parsed.code,parsed.reason) && mainWindow && !mainWindow.isDestroyed())
+        mainWindow.webContents.send('live:failures-changed');
+    }
+  } catch (e) { emitLog('处理直播评论或写入未入队记录失败', { id, message:e.message }); }
+  emitLog('收到抖音直播评论', {
+    room: comment.room,
+    name: comment.name,
+    text: comment.text
+  });
+}
+
+async function startDouyinBridge(room) {
+  const status = await douyinBridgeSession.connect(room);
+  publishLiveStatus(status);
+  return status;
+}
+
+function initializeQuoteBoard() {
+  parseComment = makeParser(dataStore.db);
+  let lastSpokenId;
+  board = new QuoteBoard({
+    holdMs: readQuoteInterval(dataStore) * 1000,
+    change: snapshot => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('live:board', snapshot);
+      const finished = snapshot.history[0];
+      if (finished && finished.id !== lastSpokenId) {
+        lastSpokenId = finished.id;
+        voiceCue('quote',finished.room,{id:finished.id,series:finished.seriesName,low:finished.low,high:finished.high});
+      }
+    },
+    log: (id, message) => emitLog('直播报价跳过', {id,message}),
+    quote: requestLiveQuote
+  });
+}
+function requestLiveQuote(input, { strictProvider = false, provider, requestScope } = {}) {
+  return serializeBrowserWork(async () => {
+    const scope = requestScope || new RequestScope('live');
+    const timeout = setTimeout(() => scope.cancel(), 90000);
+    let account, beforeRequests;
+    try {
+      if(typeof quotePool!=='undefined' && quotePool)return await scope.wait(()=>quotePool.run(input,scope,{provider}));
+      if (typeof guaziService !== 'undefined' && guaziService && dataStore.getSetting('quote.provider', 'che300') === 'guazi') {
+        const result=await scope.wait(() => guaziService.quote(input,scope));
+        // A catalog/price miss stays on its selected platform. Only an absent
+        // or expired login may use an already-authenticated other provider.
+        if (strictProvider || !['AUTH_REQUIRED','NO_ACCOUNT'].includes(result.code) || !accounts.some(a=>a.id===currentAccountId&&a.status==='authenticated')) return result;
+        emitLog('瓜子登录未就绪，使用已登录的车300账号');
+      }
+      const cached = !input.forceRefresh && cachedQuoteForInput(input, false);
+      if (cached) return cached;
+      account = accounts.find(a => a.id === currentAccountId && !a.deleting);
+      if (!account || ['signed-out','expired','login-required'].includes(account.status)) {
+        if(!strictProvider && typeof guaziAccounts!=='undefined'&&guaziAccounts?.snapshot().some(a=>a.active&&a.status==='authenticated'))
+          return await scope.wait(()=>guaziService.quote(input,scope));
+        return { ok:false, code:'AUTH_REQUIRED', message:'请先登录车300账号' };
+      }
+      if (account.cooldownUntil > Date.now()) return {ok:false, code:'RATE_LIMITED', message:'报价服务暂缓'};
+      beforeRequests = account.requests;
+      const result = await scope.wait(() => estimateVehicle(input, scope, { deferPhoto:true }));
+      if (result.code === 'AUTH_REQUIRED') reportAuthState('expired');
+      if (!strictProvider && result.code === 'AUTH_REQUIRED' && typeof guaziAccounts!=='undefined'&&guaziAccounts?.snapshot().some(a=>a.active&&a.status==='authenticated'))
+        return await scope.wait(()=>guaziService.quote(input,scope));
+      if (result.code === 'RATE_LIMITED') markAccountRateLimited(account.id);
+      return result;
+    } catch (error) {
+      if (scope.cancelled || error.code === 'REQUEST_TIMEOUT') return {ok:false, code:'TIMEOUT', message:'请求超时'};
+      emitLog('直播估价请求出错', { message:error.message });
+      return {ok:false, code:'REQUEST_FAILED', message:error.message};
+    } finally {
+      clearTimeout(timeout);
+      scope.dispose();
+      if (beforeRequests !== undefined && account.requests > beforeRequests) scheduleAccountMaintenance(account.id);
+    }
+  });
+}
+
+function testCommentMatch(text) {
+  lastTestMatch = null;
+  const result = parseComment({text: typeof text==='string'?text:''});
+  if (!result.ok) return result;
+  const ticket = randomUUID();
+  lastTestMatch = { ticket, input: result.job.input };
+  return {...result,ticket};
+}
+
+function testCommentQuote(ticket) {
+  if (!lastTestMatch || ticket !== lastTestMatch.ticket) return {ok:false, message:'请重新测试匹配'};
+  if (board.current || (!board.blocked && board.pending.length)) return {ok:false, message:'直播队列正在估价，请等本轮处理完再试算'};
+  return requestLiveQuote({...lastTestMatch.input},{strictProvider:true});
+}
+
+function applyQueuedAvatar(msg) {
+  if(!board?.setQueuedAvatar(msg)) return false;
+  try {dataStore.db.prepare('UPDATE live_comments SET avatar_url=? WHERE id=? AND room=?').run(msg.avatar,msg.id,msg.room);}
+  catch(e){emitLog('已入队，头像未保存',{id:msg.id,message:e.message});}
+  return true;
+}
+
+function initializeDouyinBridge() {
+  const bridgeDataDirectory = path.join(path.dirname(runtimeLogFile), 'douyin-bridge');
+  douyinBridgeProcess = new DouyinBridgeProcess({
+    dataDirectory: bridgeDataDirectory,
+    onQueuedAvatar: applyQueuedAvatar,
+    onOutput: (line, channel) => emitLog(channel === 'stderr' ? '抖音桥错误' : '抖音桥日志', { message: line }),
+    onStatus: status => publishLiveStatus(getLiveStatus())
+  });
+  douyinBridge = new DouyinBridgeClient({
+    onEvent: event => { if(event.type==='join') voiceCue('welcome',event.room);else if(event.type==='comment')voiceCue('comment',event.room); },
+    onComment: comment => { if (douyinBridgeSession?.active) handleDouyinComment(comment); },
+    onStatus: status => {
+      publishLiveStatus(getLiveStatus());
+      if (status.state === 'connected') emitLog('抖音评论桥已连接', { url: status.url });
+      if (status.state === 'error') emitLog('抖音评论桥连接异常', { message: status.lastError });
+    }
+  });
+  douyinBridgeSession = new DouyinBridgeSession(douyinBridgeProcess,douyinBridge);
+}
+
+async function setDouyinRoom(room) {
+  const normalizedRoom = normalizeRoom(room);
+  if (!normalizedRoom) throw new Error('直播间号格式不正确');
+  return startDouyinBridge(normalizedRoom);
+}
+
+function connectDouyinBridge() {
+  const room = getLiveStatus().room;
+  if (!room) {
+    const status = { ...getLiveStatus(), lastError: '还没有设置抖音直播间号' };
+    publishLiveStatus(status);
+    return status;
+  }
+  return startDouyinBridge(room);
 }
 
 async function runLogged(label, details, task) {
@@ -124,6 +324,7 @@ function createMainWindow() {
     maximizable: true,
     fullscreenable: true,
     title: '二手车估价',
+    icon: appIconPath,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
     backgroundColor: '#f2f2f2',
@@ -135,13 +336,16 @@ function createMainWindow() {
     }
   });
 
+  mainWindow.webContents.on('render-process-gone',()=>voiceLibrary?.endLive());
+  mainWindow.webContents.once('destroyed',()=>voiceLibrary?.endLive());
   mainWindow.loadFile(path.join(__dirname, 'app', 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.once('did-finish-load', () => {
     publishAccounts();
+    publishLiveStatus(getLiveStatus());
     Promise.race([startupSessionRestore, sleep(1500)])
       .then(() => verifyStartupAccounts())
-      .catch(error => emitLog('启动验证失败', { message: error.message }));
+      .catch(error => emitLog('启动登录验证失败', { message: error.message }));
   });
   return mainWindow;
 }
@@ -441,6 +645,7 @@ async function checkLoginWindow() {
 }
 
 async function openChe300Login(targetUrl) {
+  guaziAccounts?.closeLogin();
   if (!accounts.some(account => account.id === currentAccountId && !account.deleting)) {
     return { authenticated: false, code: 'NO_ACCOUNT' };
   }
@@ -796,14 +1001,9 @@ async function refreshBrands(category) {
 
 async function getBrands(category) {
   const local = dataStore.getBrands(category);
-  if (local.length) {
-    emitLog('从本地数据库读取品牌', { category, count: local.length });
-    if (!dataStore.isFresh('brands:' + category, CATALOG_TTL)) {
-      scheduleCatalogTask('brands:' + category, () => refreshBrands(category));
-    }
-    return local;
-  }
-  return queueCatalogTask('brands:' + category, () => refreshBrands(category));
+  if (!local.length) throw new Error('本地品牌目录为空，请先手动更新车型数据');
+  emitLog('从本地数据库读取品牌', { category, count: local.length });
+  return local;
 }
 
 async function scrapeSeries(category, brandId) {
@@ -837,11 +1037,9 @@ async function refreshSeries(category, brandId) {
 async function getSeries(category, brandId) {
   const id = validNumericId(brandId, '品牌ID');
   const local = dataStore.getSeries(category, id);
-  if (local.length) {
-    emitLog('从本地数据库读取车系', { brandId: id, count: local.length });
-    return local;
-  }
-  return queueCatalogTask(`series:${category}:${id}`, () => refreshSeries(category, id));
+  if (!local.length) throw new Error('本地车系目录为空，请先手动更新车型数据');
+  emitLog('从本地数据库读取车系', { brandId: id, count: local.length });
+  return local;
 }
 
 function searchSeries(category, keyword) {
@@ -899,11 +1097,9 @@ async function getModels(category, brandId, seriesId) {
   const selectedBrandId = validNumericId(brandId, '品牌ID');
   const id = validNumericId(seriesId, '车系ID');
   const local = dataStore.getModels(category, selectedBrandId, id);
-  if (local.length) {
-    emitLog('从本地数据库读取具体车型', { seriesId: id, count: local.length });
-    return local;
-  }
-  return queueCatalogTask(`models:${category}:${selectedBrandId}:${id}`, () => refreshModels(category, selectedBrandId, id));
+  if (!local.length) throw new Error('本地车型目录为空，请先手动更新车型数据');
+  emitLog('从本地数据库读取具体车型', { seriesId: id, count: local.length });
+  return local;
 }
 
 async function getRegions() {
@@ -913,36 +1109,12 @@ async function getRegions() {
     dataStore.replaceRegions(bundled.provinces, bundled.fetchedAt || 0);
     local = dataStore.getRegions();
   }
-  if (dataStore.isFresh('regions', CATALOG_TTL)) return local;
-  if (regionRequest) return local.length ? local : regionRequest;
-  regionRequest = (async () => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await session.fromPartition(CHE300_PARTITION).fetch(
-        'https://www.che300.com/api/city/city_selector', { signal: controller.signal });
-      if (!response.ok) throw new Error('地区接口返回 ' + response.status);
-      const payload = await response.json();
-      if (Number(payload.code) !== 2000 || !payload.data?.provinces) throw new Error('地区目录格式异常');
-      const provinces = Object.values(payload.data.provinces).flat().map(province => ({
-        id: validNumericId(province.prov_id, '省份ID'),
-        name: String(province.prov_name),
-        cities: (province.city_list || []).map(city => ({
-          id: validNumericId(city.city_id, '城市ID'), name: String(city.city_name)
-        }))
-      }));
-      if (!provinces.length || provinces.some(province => !province.cities.length)) throw new Error('地区目录不完整');
-      dataStore.replaceRegions(provinces);
-      local = provinces;
-      emitLog('省市目录更新完成', { provinces: provinces.length, cities: provinces.reduce((sum, province) => sum + province.cities.length, 0) });
-    } catch (error) {
-      emitLog('省市目录更新失败，继续使用本地目录', { message: error.message });
-    } finally {
-      clearTimeout(timer);
-    }
-    return local;
-  })().finally(() => { regionRequest = null; });
-  return local.length ? local : regionRequest;
+  if (!local.length) throw new Error('本地省市目录为空，请先检查数据库');
+  emitLog('从本地数据库读取省市目录', {
+    provinces: local.length,
+    cities: local.reduce((total, province) => total + province.cities.length, 0)
+  });
+  return local;
 }
 
 const vehiclePhotoDownloads = new Map();
@@ -1033,7 +1205,7 @@ function upgradeCachedVehiclePhoto(key, vehicle, inputKey) {
   return vehicle;
 }
 
-async function getVehiclePhoto(window) {
+async function getVehiclePhoto(window, defer = false) {
   const details = await evaluatePage(window, `(() => {
     const img = document.querySelector('.rh > img');
     const candidates = [];
@@ -1058,6 +1230,17 @@ async function getVehiclePhoto(window) {
   const vehicle = { name: details.name, imageUrl: urls.at(-1) || '', imageData: '' };
   if (!urls.length) return vehicle;
   const attempts = [...new Set([originalVehiclePhotoUrl(urls[0]), urls.at(-1)])];
+  if (defer) {
+    const local = attempts.map(url => dataStore.getVehiclePhoto(url)).find(Boolean);
+    if (local) return { ...vehicle, ...local };
+    // The card can load the thumbnail right away; populate the local image cache asynchronously.
+    for (const url of attempts) {
+      if (vehiclePhotoDownloads.has(url)) break;
+      void loadVehiclePhoto(url).catch(() => {});
+      break;
+    }
+    return vehicle;
+  }
   for (const imageUrl of attempts) {
     try {
       Object.assign(vehicle, await loadVehiclePhoto(imageUrl));
@@ -1078,7 +1261,11 @@ function initializeDataStore() {
   const databaseFile = initializePortableDatabase(directory,
     path.join(app.getPath('userData'), 'valuation.sqlite'), bundledDatabase);
   dataStore = new DataStore(databaseFile);
+  const catalogMerge = dataStore.mergeCatalogFrom(bundledDatabase);
+  const additions = applyCatalogAdditions(dataStore.db);
+  if (catalogMerge.changed) emitLog('已从安装包补齐本地车型目录', catalogMerge.inserted);
   runtimeLogFile = path.join(directory, 'runtime.log');
+  if (Object.values(additions).some(Boolean)) emitLog('已导入核对过的车型缺项', additions);
   try {
     const oldQuotes = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'quote-cache.json'), 'utf8'));
     dataStore.migrateQuotes(oldQuotes);
@@ -1090,14 +1277,6 @@ function initializeDataStore() {
     }
   } catch {}
   emitLog('便携数据库已就绪', { file: databaseFile });
-}
-
-function warmCatalog() {
-  const category = 'passenger';
-  if (!dataStore.getBrands(category).length || !dataStore.isFresh('brands:' + category, CATALOG_TTL)) {
-    scheduleCatalogTask('brands:' + category, () => refreshBrands(category));
-  }
-  getRegions().catch(error => emitLog('后台地区更新失败', { message: error.message }));
 }
 
 function fullCatalogUpdateStateFile() {
@@ -1229,7 +1408,7 @@ function startFullCatalogUpdate(trigger = 'manual') {
   return { started: true, ...fullCatalogProgress };
 }
 
-async function estimateVehicle(input, scope) {
+async function estimateVehicle(input, scope, { deferPhoto = false } = {}) {
   scope.check();
   const provinceId = validNumericId(input.provinceId, '省份ID');
   const cityId = validNumericId(input.cityId, '城市ID');
@@ -1244,10 +1423,9 @@ async function estimateVehicle(input, scope) {
   const registrationText = `${registrationMatch[1]}-${registrationMonth}`;
   const mileageText = String(mileage).replace(/\.0+$/, '');
   const key = [provinceId, cityId, modelId, registrationText, mileageText].join(':');
-  const cached = dataStore.getQuote(key);
+  const cached = cachedQuoteForInput(input, false);
   emitLog('估值参数已整理', { provinceId, cityId, modelId, registration: registrationText, mileage: mileageText });
-  if (!input.forceRefresh && cached && cached.vehicle && cached.priceRuleVersion === 6 && cached.prices?.good?.high
-    && Date.now() - cached.fetchedAt < CACHE_TTL) {
+  if (!input.forceRefresh && cached) {
     emitLog('命中本地报价缓存');
     return { ok: true, cached: true, ...cached };
   }
@@ -1444,14 +1622,17 @@ async function estimateVehicle(input, scope) {
   };
 
   try {
-    result.vehicle = await scope.wait(() => getVehiclePhoto(window));
+    const shared=localVehiclePhoto(dataStore,sourceVehicle(dataStore,input));
+    result.vehicle = shared.imageData?shared:await scope.wait(() => getVehiclePhoto(window, deferPhoto));
   } catch (error) {
     scope.check();
     result.vehicle = { name: '', imageUrl: '', imageData: '' };
     emitLog('未获取到车型图片，不影响报价', { message: error.message });
   }
   scope.check();
+  dataStore.linkSharedVehiclePhoto(sourceVehicle(dataStore,input),result.vehicle,result.fetchedAt);
   dataStore.saveQuote(key, result);
+  observeQuote(sourceVehicle(dataStore,input),input,{...result,ok:true},'che300:'+key+':'+result.fetchedAt);
   emitLog('报价图片解码完成', result.prices);
   sessionVerified = true;
   reportAuthState('authenticated');
@@ -1461,6 +1642,8 @@ async function estimateVehicle(input, scope) {
 
 async function estimateWithLogin(input, scope) {
   scope.check();
+  const cached = !input.forceRefresh && cachedQuoteForInput(input, false);
+  if (cached) return cached;
   if (!accounts.some(account => account.id === currentAccountId && !account.deleting)) {
     return cachedQuoteForInput(input) || { ok: false, code: 'NO_ACCOUNT', message: '请先添加并登录账号' };
   }
@@ -1565,42 +1748,6 @@ async function estimateWithRetry(input, scope) {
   }
 }
 
-function submitEstimate(input) {
-  const scope = quoteRequests.start();
-  const requestedAt = Date.now();
-  const cached = cachedQuoteForInput(input, false);
-  const onlineInput = cached ? { ...input, forceRefresh: true } : input;
-  const task = serializeBrowserWork(async () => {
-    try {
-      scope.check();
-      emitLog('开始最新估价请求', { requestId: scope.id, queueMs: Date.now() - requestedAt });
-      const result = await scope.wait(() => estimateWithLogin(onlineInput, scope));
-      return { ...result, requestId: scope.id };
-    } catch (error) {
-      if (scope.cancelled || error.code === 'SUPERSEDED') {
-        emitLog('旧估价请求已取消', { requestId: scope.id });
-        return { ok: false, code: 'SUPERSEDED', requestId: scope.id };
-      }
-      emitLog('本次估价请求失败', { requestId: scope.id, message: error.message });
-      return { ok: false, code: 'REQUEST_FAILED', requestId: scope.id };
-    } finally {
-      emitLog('估价请求结束', { requestId: scope.id, elapsedMs: Date.now() - requestedAt });
-      quoteRequests.finish(scope);
-    }
-  });
-  if (!cached) return task;
-  emitLog('先展示已有报价，后台强制更新', { ageMs: Date.now() - cached.fetchedAt });
-  task.then(result => {
-    if (!scope.cancelled && result.ok && !result.cached && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('che300:quote-updated', {
-        requestId: scope.id, inputKey: JSON.stringify(input), result
-      });
-      emitLog('后台报价已更新');
-    }
-  }).catch(error => emitLog('后台报价更新失败，保留已有报价', { message: error.message }));
-  return Promise.resolve({ ...cached, requestId: scope.id, refreshing: true });
-}
-
 function normalizeCachedQuote(cached) {
   if (!cached?.prices) return null;
   const values = [
@@ -1646,9 +1793,108 @@ function cachedQuoteForInput(input, logFallback = true) {
     }
   }
   if (!cached) return null;
-  cached.vehicle = upgradeCachedVehiclePhoto(cacheKey, cached.vehicle, JSON.stringify(input));
+  const originalUrl=cached.vehicle?.imageUrl&&originalVehiclePhotoUrl(cached.vehicle.imageUrl);
+  const originalPhoto=originalUrl&&dataStore.getVehiclePhoto(originalUrl);
+  const preferred=originalPhoto?{...cached.vehicle,...originalPhoto}:cached.vehicle;
+  const storedPhoto=localVehiclePhoto(dataStore,sourceVehicle(dataStore,input),preferred);
+  cached.vehicle={...cached.vehicle,...storedPhoto};
   if (logFallback) emitLog(nearest ? '在线报价暂不可用，使用同车型历史报价' : '在线报价暂不可用，使用已有数据库报价');
   return { ...cached, ok: true, cached: true, historicalFallback: nearest };
+}
+
+function submitEstimate(input) {
+  const scope = quoteRequests.start();
+  if(typeof quotePool!=='undefined'&&quotePool)return requestLiveQuote(input,{requestScope:scope}).then(result=>({...result,requestId:scope.id}))
+    .finally(()=>quoteRequests.finish(scope));
+  const requestedAt = Date.now();
+  const cached = !input.forceRefresh && cachedQuoteForInput(input, false);
+  if (cached) {
+    emitLog('命中本地报价缓存');
+    quoteRequests.finish(scope);
+    return Promise.resolve({ ...cached, requestId:scope.id });
+  }
+  const task = serializeBrowserWork(async () => {
+    try {
+      scope.check();
+      emitLog('开始在线估价请求', { requestId: scope.id, queueMs: Date.now() - requestedAt });
+      const result = await scope.wait(() => estimateWithLogin(input, scope));
+      return { ...result, requestId: scope.id };
+    } catch (error) {
+      if (scope.cancelled || error.code === 'SUPERSEDED') {
+        emitLog('旧估价请求已取消', { requestId: scope.id });
+        return { ok: false, code: 'SUPERSEDED', requestId: scope.id };
+      }
+      emitLog('本次在线估价请求失败', { requestId: scope.id, message: error.message });
+      return { ok: false, code: 'REQUEST_FAILED', requestId: scope.id };
+    } finally {
+      emitLog('在线估价请求结束', { requestId: scope.id, elapsedMs: Date.now() - requestedAt });
+      quoteRequests.finish(scope);
+    }
+  });
+  return task;
+}
+
+function observeQuote(vehicle,input,result,key) {
+  try {
+    if (vehicle && quoteLearning) quoteLearning.observe(vehicle,input,result,key);
+  } catch (error) { emitLog('后台模拟学习保存失败，不影响平台报价',{message:error.message}); }
+}
+
+function initializeGuazi() {
+  quoteLearning = new QuoteLearning(dataStore);
+  catalogPhotos=new CatalogPhotos({store:dataStore,fetch:(url,options)=>session.defaultSession.fetch(url,options),log:emitLog,
+    decode:bytes=>{const image=nativeImage.createFromBuffer(bytes);const size=image.getSize();if(image.isEmpty()||size.width<64||size.height<40)throw Error('车型图片内容无效');return (size.width>420?image.resize({width:420,quality:'best'}):image).toPNG();}});
+  guaziAccounts = new GuaziAccounts({store:dataStore,BrowserWindow,session,dialog,EmbeddedLogin,managed:true,parent:()=>mainWindow,
+    log:emitLog,change:snapshot=>{
+      if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('guazi:accounts',snapshot);
+      if(snapshot.some(a=>a.active&&a.status==='authenticated') && ['AUTH_REQUIRED','NO_ACCOUNT','CAPTCHA_REQUIRED'].includes(board?.blocked)) board.resume();
+      if(snapshot.some(a=>a.status==='authenticated')&&quoteReplay?.report?.state==='blocked'&&quoteReplay.report.blocked==='CAPTCHA_REQUIRED')
+        setImmediate(()=>{if(!quoteReplay.running)void quoteReplay.start();});
+    }});
+  guaziService = new GuaziService({store:dataStore,call:(...args)=>guaziAccounts.call(...args),learn:observeQuote,
+    invalidateSamples:keys=>quoteLearning.invalidate(keys),photos:catalogPhotos,log:emitLog});
+  guaziService.indexKnownPhotos();
+  void catalogPhotos.prefetchKnown().then(()=>guaziService.indexKnownPhotos()).catch(error=>emitLog('车图预缓存异常',{message:error.message}));
+  guaziSessionRestore=guaziAccounts.restore().catch(error=>emitLog('瓜子登录状态恢复失败',{message:error.message}));
+  // Historical real responses may seed the same shared model once. Neither
+  // replayed cache reads nor repeated live cache hits create training samples.
+  setImmediate(()=>{
+    const rows=dataStore.db.prepare('SELECT cache_key,payload FROM quotes ORDER BY fetched_at DESC LIMIT 1000').all();
+    for(const row of rows) {
+      try {
+        if(row.cache_key.startsWith('guazi:'))continue;
+        const [provinceId,cityId,modelId,registration,mileage]=row.cache_key.split(':');
+        const input={provinceId,cityId,modelId,registration,mileage:Number(mileage)};
+        const q=JSON.parse(row.payload);
+        observeQuote(sourceVehicle(dataStore,input),input,{...q,ok:true,cached:false},'che300:'+row.cache_key+':'+q.fetchedAt);
+      }catch{}
+    }
+  });
+}
+
+function initializeQuotePool(){
+  quotePool=new QuoteAccountPool({store:dataStore,
+    list:()=>[...accounts.map(a=>({...a,provider:'che300'})),...guaziAccounts.snapshot().map(a=>({...a,provider:'guazi'}))],
+    activate:a=>{if(a.provider==='che300'){if(currentAccountId!==a.id)activateAccount(a.id);}else if(!guaziAccounts.get(a.id).active)guaziAccounts.select(a.id);},
+    count:a=>a.provider==='che300'?Number(accounts.find(x=>x.id===a.id)?.totalRequests||0):Number(guaziAccounts.get(a.id).requests||0),
+    cache:(provider,input)=>provider==='guazi'?guaziService.getCached(input):cachedQuoteForInput(input,false),
+    request:async(a,input,scope)=>{
+      if(a.provider==='guazi')return guaziService.quote(input,scope);
+      const result=await estimateVehicle(input,scope,{deferPhoto:true});
+      if(result.code==='AUTH_REQUIRED')reportAuthState('expired');
+      if(result.code==='RATE_LIMITED')markAccountRateLimited(a.id);
+      return {...result,provider:'che300'};
+    },
+    log:emitLog,change:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('quote:pool',state);}
+  });
+  const reportArg=process.argv.find(a=>a.startsWith('--replay-report='));
+  const replayLimit=process.argv.find(a=>a.startsWith('--replay-limit='));
+  const replayIds=process.argv.find(a=>a.startsWith('--replay-ids='));
+  quoteReplay=new QuoteReplay({store:dataStore,quote:requestLiveQuote,interval:()=>readQuoteInterval(dataStore)*1000,
+    limit:replayLimit?Number(replayLimit.slice('--replay-limit='.length)):Infinity,
+    commentIds:replayIds?replayIds.slice('--replay-ids='.length).split(',').map(Number):null,
+    file:reportArg?reportArg.slice('--replay-report='.length):path.join(path.dirname(runtimeLogFile),'报价回归-'+Date.now()+'.json'),
+    provider:'guazi',change:r=>emitLog('真实留言瓜子回归进度',{state:r.state,total:r.total,matched:r.matched,attempted:r.attempted,passed:r.passed,failed:r.failed,remaining:r.remaining})});
 }
 
 function initializeAccounts() {
@@ -1679,7 +1925,7 @@ function initializeAccounts() {
     requests: row.request_count, totalRequests: row.total_requests, active: Boolean(row.active),
     cooldownUntil: Number(row.cooldown_until) || 0,
     status: Number(row.cooldown_until) > Date.now() ? 'cooldown' : 'unchecked',
-    checkedAt: 0, lastCheckAt: 0, hasSession: false, maintenanceQueued: false
+    checkedAt: 0, lastCheckAt: 0, hasSession: false
   }));
   const active = accounts.find(account => account.active) || accounts[0];
   currentAccountId = active?.id || '';
@@ -1704,6 +1950,8 @@ function accountSnapshot() {
 }
 
 function publishAccounts() {
+  if(board?.blocked==='AUTH_REQUIRED' && accounts.some(a=>a.id===currentAccountId && a.status==='authenticated')) setImmediate(()=>board?.resume());
+
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('che300:accounts', accountSnapshot());
 }
 
@@ -1737,7 +1985,7 @@ function addAccount() {
     id, label: '账号 ' + (Math.max(0, ...accounts.map(item => Number(item.label.match(/\d+$/)?.[0]) || 0)) + 1), partition: 'persist:che300-account-' + id,
     phoneMask: '',
     requests: 0, totalRequests: 0, status: 'signed-out', checkedAt: 0, lastCheckAt: 0,
-    hasSession: false, maintenanceQueued: false
+    hasSession: false
   };
   dataStore.db.prepare('INSERT INTO service_accounts(id, label, partition) VALUES (?, ?, ?)').run(id, account.label, account.partition);
   accounts.push(account);
@@ -1939,26 +2187,6 @@ async function findReadyBackup(excluded = new Set([currentAccountId])) {
   return null;
 }
 
-function scheduleAccountMaintenance(id) {
-  const account = accounts.find(item => item.id === id);
-  if (!account || account.maintenanceQueued || (account.requests !== ACCOUNT_PREFLIGHT_AT && account.requests < ACCOUNT_ROTATION_LIMIT)) return;
-  account.maintenanceQueued = true;
-  Promise.resolve().then(async () => {
-    if (currentAccountId !== id) return;
-    const backup = await findReadyBackup();
-    if (account.requests >= ACCOUNT_ROTATION_LIMIT && backup) {
-      await serializeBrowserWork(() => {
-        if (currentAccountId !== id || backup.status !== 'authenticated' || backup.deleting || !accounts.includes(backup)) return;
-        activateAccount(backup.id, true);
-        emitLog('下一次估价使用备用账号', { from: account.label, to: backup.label });
-      });
-    } else {
-      emitLog(backup ? '备用账号登录预检查通过' : '暂无可切换的已验证备用账号', { account: account.label, backup: backup?.label });
-    }
-  }).catch(error => emitLog('账号轮换检查失败', { message: error.message }))
-    .finally(() => { account.maintenanceQueued = false; });
-}
-
 async function getSessionState() {
   const che300Session = session.fromPartition(CHE300_PARTITION);
   const cookies = await che300Session.cookies.get({ url: 'https://www.che300.com/' });
@@ -1970,13 +2198,63 @@ async function getSessionState() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin' && !app.isPackaged) app.dock.setIcon(appIconPath);
   initializeDataStore();
+  try {
+    voiceLibrary = new VoiceLibrary(path.dirname(runtimeLogFile));
+    registerVoiceIpc(ipcMain,voiceLibrary,()=>mainWindow,dialog);
+  } catch (error) {
+    // Preserve damaged or read-only operator data without taking the quote board down.
+    emitLog('语音库未打开，估价功能不受影响',{message:error.message});
+    ipcMain.handle('voice:get',()=>{throw Error('语音库读取失败，原文件已保留：'+error.message);});
+  }
+  initializeQuoteBoard();
+  initializeDouyinBridge();
   initializeAccounts();
+  initializeGuazi();
+  initializeQuotePool();
   startupSessionRestore = restoreAccountSessions().catch(error => {
     emitLog('恢复账号登录状态失败', { message: error.message });
   });
   selfTest();
   ipcMain.handle('app:logs', () => logHistory);
+  ipcMain.handle('live:test-match', (_event,text) => testCommentMatch(text));
+  ipcMain.handle('live:test-quote', (_event,ticket) => testCommentQuote(ticket));
+  ipcMain.handle('live:board', () => board.snapshot());
+  // Supply readable pixels for a CDN thumbnail without changing renderer CORS policy.
+  // Accept only the current job ID, never a URL from the renderer.
+  ipcMain.handle('live:featured-photo', async (event,id) => {
+    if(event.sender!==mainWindow?.webContents || event.senderFrame!==event.sender.mainFrame)return null;
+    const latest=board?.history[0];
+    if(!latest || latest.id!==id || !/^https:\/\//i.test(latest.photo))return null;
+    try {
+      const photo=await loadVehiclePhoto(latest.photo);
+      return board.history[0]===latest ? photo.imageData : null;
+    } catch { return null; }
+  });
+  ipcMain.handle('live:resume-quotes', () => board.resume());
+  ipcMain.handle('quote:pool', () => quotePool.snapshot());
+  ipcMain.handle('guazi:accounts', () => guaziAccounts.snapshot());
+  registerGuaziLoginIpc(ipcMain,()=>mainWindow,guaziAccounts);
+  for(const method of ['login','refresh','select','remove']) ipcMain.handle('guazi:'+method,(event,id)=>{
+    if(event.sender!==mainWindow?.webContents)throw Error('账号操作来源无效');
+    if(method==='select')return serializeBrowserWork(()=>{quotePool.select('guazi',id);return guaziAccounts.snapshot();});
+    if(method==='login')loginWindow?.close();
+    return guaziAccounts[method](id);
+  });
+  ipcMain.handle('guazi:add', async event=>{
+    if(event.sender!==mainWindow?.webContents)throw Error('账号操作来源无效');
+    loginWindow?.close();
+    const id=guaziAccounts.add();
+    return guaziAccounts.login(id);
+  });
+  registerQuoteSettingsIpc(ipcMain, dataStore, board);
+  ipcMain.handle('live:status', getLiveStatus);
+  ipcMain.handle('live:connect', connectDouyinBridge);
+  ipcMain.handle('live:disconnect', () => douyinBridgeSession.disconnect());
+  ipcMain.handle('live:set-room', (_event, room) => setDouyinRoom(room));
+  ipcMain.handle('live:comments', (_event, limit) => dataStore.listLiveComments(limit));
+  registerFailureIpc(ipcMain,dialog,()=>mainWindow,dataStore);
   ipcMain.handle('catalog:regions', getRegions);
   ipcMain.handle('che300:open-login', (_event, targetUrl) => serializeBrowserWork(() => openChe300Login(targetUrl)));
   ipcMain.on('login-panel:bounds', (event, bounds) => {
@@ -2028,7 +2306,10 @@ app.whenReady().then(async () => {
     return serializeBrowserWork(() => deleteAccount(id));
   });
   ipcMain.handle('che300:login-account', (_event, id) => serializeBrowserWork(() => loginAccount(id)));
-  ipcMain.handle('che300:select-account', (_event, id) => serializeBrowserWork(() => activateAccount(id)));
+  ipcMain.handle('che300:select-account', (event, id) => {
+    if(event.sender!==mainWindow?.webContents)throw Error('账号操作来源无效');
+    return serializeBrowserWork(()=>{quotePool.select('che300',id);return accountSnapshot();});
+  });
   ipcMain.handle('catalog:brands', (_event, category) => runLogged('请求品牌目录', { category }, () => getBrands(category)));
   ipcMain.handle('catalog:series', (_event, input) => runLogged('请求车系列表', { brandId: input.brandId }, () => getSeries(input.category, input.brandId)));
   ipcMain.handle('catalog:search-series', (_event, input) => searchSeries(input.category, input.keyword));
@@ -2037,8 +2318,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('che300:estimate', (_event, input) => submitEstimate(input));
   ipcMain.on('che300:cancel-estimate', () => quoteRequests.cancel());
   createMainWindow();
-  setTimeout(warmCatalog, 250);
-  setTimeout(() => scheduleCatalogTask('catalog:warm', () => prepareCatalog('passenger')), 500);
+  if(process.argv.includes('--replay-guazi'))void (async()=>{
+    await Promise.all([startupSessionRestore,guaziSessionRestore]);await verifyStartupAccounts();
+    if(board.current||board.pending.length)throw Error('直播队列正在运行，不启动报价回归');
+    await quoteReplay.start();
+  })().catch(error=>emitLog('报价回归启动失败',{message:error.message}));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
@@ -2047,4 +2331,10 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  voiceLibrary?.close();
+  guaziAccounts?.close();
+  douyinBridgeSession?.disconnect();
 });

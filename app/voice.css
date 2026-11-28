@@ -1,0 +1,41 @@
+#voicePanel .voice-body{display:grid;gap:12px;color:var(--text)}
+#voicePanel fieldset{min-width:0;margin:0;padding:8px 0 0;border:0;display:grid;gap:8px}
+#voicePanel legend{font-size:13px;font-weight:650;padding:0;color:#244653}
+#voicePanel textarea,#voicePanel select{display:block;width:100%;min-width:0;box-sizing:border-box;padding:7px 9px;border-radius:8px;border:1px solid var(--glass-edge);background:var(--glass-field);color:var(--text);font:inherit;font-size:13px}
+#voicePanel textarea{resize:vertical;line-height:1.5}
+#voicePanel #voiceBanks{display:grid;gap:12px}
+#voicePanel .voice-bank{display:grid;gap:8px;min-width:0;padding:10px;border-radius:12px;border:1px solid var(--glass-edge);background:var(--glass-field)}
+#voicePanel .voice-bank header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+#voicePanel .voice-bank h3{margin:0;font-size:14px;color:#244653}
+#voicePanel .voice-bank small,#voicePanel .voice-file-to span{font-size:12px;color:#425c69}
+#voicePanel .voice-bank select{width:auto;padding:3px 6px;font-size:12px}
+#voicePanel .voice-file-to{display:grid;gap:5px;margin-top:9px}
+#voicePanel .voice-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#voicePanel button{font:inherit;font-size:12px;line-height:1.4;padding:5px 9px;border-radius:7px;background:var(--glass-field);border:1px solid var(--glass-edge);color:#1a434e}
+#voicePanel button:enabled{cursor:pointer}
+#voicePanel button:disabled{opacity:.48}
+#voicePanel #voiceGenerate{background:#235969;color:white}
+#voicePanel #voiceDraft,#voicePanel .voice-rows li{border-radius:8px;background:#ffffff70;padding:8px 10px;margin:0}
+#voicePanel #voiceDraft[hidden]{display:none}
+#voicePanel .voice-master{position:relative;display:inline-flex;justify-self:start;align-items:center;gap:10px;font-size:14px;font-weight:600;cursor:pointer}
+#voiceAuto{position:absolute;width:1px;height:1px;opacity:0}
+#voicePanel .switch-track{display:inline-flex;align-items:center;width:36px;height:21px;border-radius:20px;background:#687982;padding:3px;box-sizing:border-box}
+#voicePanel .switch-track::before{content:"";width:15px;height:15px;background:white;border-radius:100%;box-shadow:0 1px 3px #27465155}
+#voiceAuto:checked+.switch-track{background:#14665c}
+#voiceAuto:checked+.switch-track::before{transform:translateX(15px)}
+#voiceAuto:disabled+.switch-track{opacity:.5}
+#voiceAuto:focus-visible+.switch-track{outline:2px solid #235969;outline-offset:3px}
+#voicePanel .voice-audio{display:block;width:100%;min-width:0;height:36px;margin:5px 0}
+#voiceJob:not([hidden]){display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+#voiceJobBar{width:70px;accent-color:#235969}
+#voicePanel #voiceBaseFields:not([hidden]){display:grid;gap:7px}
+#voicePanel :is(#voiceBaseFields,#voiceDesignFields)[hidden]{display:none}
+#voicePanel .voice-rows{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+#voicePanel .voice-rows li p,#voicePanel #voiceDraft p{font-size:13px;margin:2px 0 6px;color:var(--text);overflow-wrap:anywhere}
+#voicePanel #voiceEngine,#voicePanel #voiceNote,#voicePanel #voicePlaying,#voicePanel .voice-actions label{font-size:12px;line-height:1.5;color:#425c69;margin:0}
+#voicePanel :focus-visible{outline:2px solid #39758a;outline-offset:1px}
+#voicePanel #voiceNote:empty,#voicePanel #voicePlaying:empty{display:none}
+
+#voicePanel .voice-bank details > summary,#voicePanel #voiceStudio > summary{cursor:pointer;color:#244653;font-weight:600}
+#voicePanel .voice-bank details[open]{display:grid;gap:8px}
+#voicePanel .voice-rule-hint{margin:0;color:#425c69;font-size:12px;line-height:1.5}

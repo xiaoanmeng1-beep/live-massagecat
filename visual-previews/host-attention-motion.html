@@ -1,0 +1,158 @@
+<div id="host-attention-motion">
+  <div class="viz-carousel viz-dotted-background" aria-label="直播间头像引导动效" data-previous-label="上一款" data-next-label="下一款">
+    <section data-variant="手绘回钩" aria-label="手绘回钩，弯箭头从文案画向头像"></section>
+    <section data-variant="引力光轨" aria-label="引力光轨，一束光沿轨迹抵达头像下沿" hidden></section>
+    <section data-variant="指尖点按" aria-label="指尖点按，小手轻点头像下方，留下接触波纹" hidden></section>
+  </div>
+  <template>
+    <div class="mc-stage">
+      <div class="mc-screen">
+        <div class="mc-top">
+          <div class="mc-origin">
+            <div class="mc-broadcaster" aria-label="平台头像和昵称位置示意"><span class="mc-portrait">杰</span><span class="mc-name">阿杰说车</span></div>
+            <div class="mc-label"><b>点头像</b><span>关注 · 私信</span></div>
+            <canvas class="mc-cue" aria-hidden="true" width="240" height="210"></canvas>
+          </div>
+          <div class="mc-banner"><strong>直播估价</strong><span>收车参考价</span></div>
+        </div>
+        <div class="mc-queue"><b>排队中 12人</b><span>阿杰　小林　…</span></div>
+      </div>
+    </div>
+  </template>
+</div>
+<style>
+  #host-attention-motion .mc-stage {display:grid;place-items:center;min-height:258px;padding:14px 8px;box-sizing:border-box}
+  #host-attention-motion .mc-screen {box-sizing:border-box;width:min(100%,440px);padding:22px 19px 15px;overflow:hidden;border-radius:17px;color:#16333c;background:radial-gradient(ellipse at 0 12%,#efeadf,transparent 57%),radial-gradient(ellipse at 100% 18%,#b8d9e9,transparent 62%),linear-gradient(130deg,#d8e6de,#bddee2);box-shadow:inset 0 1px 1px #ffffffdf,0 4px 16px #1a454614;font:14px/1.35 "PingFang SC","Microsoft YaHei",sans-serif}
+  #host-attention-motion .mc-top {display:grid;grid-template-columns:clamp(110px,32%,140px) minmax(0,1fr);gap:10px;align-items:stretch}
+  #host-attention-motion .mc-origin {position:relative;height:146px;min-width:0}
+  #host-attention-motion .mc-label,#host-attention-motion .mc-banner,#host-attention-motion .mc-queue {box-sizing:border-box;border:1px solid #ffffffe8;background:linear-gradient(120deg,#ffffffc7,#f5ffff6b);box-shadow:inset 0 1px 1px #ffffffa6,0 2px 6px #304f5911}
+  #host-attention-motion .mc-broadcaster {position:absolute;left:2px;top:0;display:flex;align-items:center;gap:5px;white-space:nowrap}
+  #host-attention-motion .mc-portrait {box-sizing:border-box;display:grid;place-items:center;width:38px;height:38px;border-radius:50%;border:1.5px solid #fff;color:white;font-weight:600;background:linear-gradient(145deg,#709da7,#345a67 80%);box-shadow:0 1px 4px #31526426}
+  #host-attention-motion .mc-name {font-size:13px;font-weight:600}
+  #host-attention-motion .mc-label {position:absolute;left:0;top:78px;display:grid;gap:1px;place-items:center;width:89px;padding:6px 3px;border-radius:10px;font-size:14px;line-height:1.3}
+  #host-attention-motion .mc-label span {font-size:12px}
+  #host-attention-motion .mc-cue {position:absolute;left:0;top:0;width:120px;height:105px;pointer-events:none}
+  #host-attention-motion .mc-banner {display:grid;align-content:center;gap:4px;margin:0 0 8px;padding:14px;border-radius:12px}
+  #host-attention-motion .mc-banner strong {font-size:clamp(17px,4vw,24px);line-height:1.2;color:#17343d}
+  #host-attention-motion .mc-banner span {font-size:13px;color:#3c5d66}
+  #host-attention-motion .mc-queue {display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-radius:8px;font-size:12px}
+  #host-attention-motion .mc-queue span {color:#425e66}
+  @media(max-width:360px){#host-attention-motion .mc-screen {padding-inline:12px}#host-attention-motion .mc-top {gap:4px}}
+</style>
+<script>
+(() => {
+  const root=document.getElementById('host-attention-motion'), template=root.querySelector('template');
+  const clamp=v=>Math.max(0,Math.min(1,v)), part=(v,a,b)=>clamp((v-a)/(b-a));
+  const ease=v=>v*v*(3-2*v), lerp=(a,b,u)=>a+(b-a)*u;
+  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+  const items=[];
+  // Sample the strokes by arc length, so loops are drawn at pen speed, not control-point speed.
+  function curve(start,segments){
+    let p=start,total=0;const pts=[{x:p[0],y:p[1],l:0}];
+    for(const [a,b,end] of segments){
+      for(let i=1;i<=64;i++){
+        const t=i/64,s=1-t;
+        const x=s*s*s*p[0]+3*s*s*t*a[0]+3*s*t*t*b[0]+t*t*t*end[0];
+        const y=s*s*s*p[1]+3*s*s*t*a[1]+3*s*t*t*b[1]+t*t*t*end[1];
+        total+=Math.hypot(x-pts.at(-1).x,y-pts.at(-1).y);pts.push({x,y,l:total});
+      }
+      p=end;
+    }
+    const at=u=>{
+      const l=clamp(u)*total;
+      let i=1;while(i<pts.length-1&&pts[i].l<l)i++;
+      const a=pts[i-1],b=pts[i],v=(l-a.l)/(b.l-a.l||1);
+      return {x:lerp(a.x,b.x,v),y:lerp(a.y,b.y,v)};
+    };
+    return at;
+  }
+  const ribbon=curve([76,79],[[[88,64],[74,55],[64,63]],[[53,74],[74,74],[65,60]],[[59,51],[41,57],[27,41]]]);
+  const track=curve([75,79],[[[75,61],[42,69],[26,41]]]);
+  function line(ctx,at,a,b,color,width){
+    if(b<=a)return;
+    const n=Math.max(2,Math.ceil(140*(b-a)));
+    ctx.beginPath();
+    for(let j=0;j<=n;j++){const p=at(lerp(a,b,j/n));if(!j)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);}
+    ctx.strokeStyle=color;ctx.lineWidth=width;ctx.lineCap='round';ctx.lineJoin='round';ctx.stroke();
+  }
+  function dots(c,x,y,r,col){if(r<=0)return;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fillStyle=col;c.fill();}
+  function stroke(c,coords,width,color) {
+    c.lineWidth=width;c.strokeStyle=color;c.beginPath();coords.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.stroke();
+  }
+  function draw(c,mode,t,strength,freeze){
+    c.clearRect(0,0,120,105);c.save();c.lineCap='round';c.lineJoin='round';
+    if(mode===0){
+      const u=freeze?1:ease(part(t,0,.96)), head=freeze?1:ease(part(t,.86,1.12));
+      const ink=freeze?1:1-.77*ease(part(t,1.8,2.45));
+      // A fine graphite underdrawing stays put during the pause; the teal stroke overtakes it.
+      line(c,ribbon,0,1,'rgba(37,76,82,.18)',1.05);
+      c.globalAlpha=ink*strength;
+      line(c,ribbon,0,u,'#22616a',2.45);
+      if(u>0&&u<1){const p=ribbon(u);dots(c,p.x,p.y,1.65,'#153f48');}
+      const end=ribbon(1);
+      stroke(c,[[lerp(end.x,29,head),lerp(end.y,51,head)],[end.x,end.y],[lerp(end.x,37,head),lerp(end.y,44,head)]],2.65,'#225b64');
+    }else if(mode===1){
+      const u=freeze?1:ease(part(t,.08,1.03)),a=freeze?.9:ease(part(t,0,.16))*(1-ease(part(t,1.02,1.47)));
+      line(c,track,0,1,'rgba(24,75,85,.23)',1.4);
+      c.globalAlpha=a*strength;
+      for(let n=12;n>=0;n--){const v=u-n*.018;if(v<=0)continue;
+        line(c,track,Math.max(0,v-.026),Math.min(v,1),'rgba(20,119,133,'+(1-n/13)*.85+')',1.2+(1-n/13)*3);
+      }
+      const p=track(u);c.shadowColor='#4ac8cd';c.shadowBlur=6;
+      dots(c,p.x,p.y,2.5,'#efffff');c.shadowBlur=0;
+      c.globalAlpha=strength;
+      // Light only the exterior lower rim. The real face and nickname stay unobscured.
+      const hit=freeze?1:ease(part(t,.94,1.28));
+      const h=freeze?.65:hit*(1-ease(part(t,1.5,2.14)));
+      if(h>0){
+        c.globalAlpha=h*strength;for(const [rad,w,col] of [[21.5,4.5,'#8cd6d7'],[21.5,1.9,'#25818a']]){
+          c.beginPath();c.arc(21,19,rad,(90-58*hit)*Math.PI/180,(90+58*hit)*Math.PI/180);c.lineWidth=w;c.strokeStyle=col;c.stroke();
+        }
+      }
+      c.globalAlpha=.8*strength;stroke(c,[[27.5,47.2],[26,41],[32,43.8]],1.8,'#387782');
+    }else{
+      const u=freeze?1:ease(part(t,.08,.79)),ret=freeze?0:ease(part(t,1.43,2.11));
+      const contact=freeze?0:Math.sin(Math.PI*part(t,.78,1.04));
+      const x=lerp(72,24,u)+ret*48,y=lerp(73,40,u)+ret*33+contact*1.7;
+      const wave=freeze?.38:part(t,.82,1.42);
+      if(wave>0&&wave<1){
+        c.globalAlpha=(1-wave)*strength;c.strokeStyle='#167785';c.lineWidth=1.75;
+        c.beginPath();c.arc(24,40,3+wave*10,0,2*Math.PI);c.stroke();
+      }
+      c.globalAlpha=(freeze?1:.48+.52*(u-ret))*strength;
+      c.save();c.translate(x,y);c.rotate((lerp(-.25,-.48,u)+ret*.23));c.scale(.84, .84-contact*.065);
+      // The fingertip (origin) is the contact point. It never points toward the price.
+      c.beginPath();c.moveTo(-2.25,3);c.bezierCurveTo(-2.25,-.8,2.1,-.9,2.25,2.4);
+      c.lineTo(2.55,9.7);c.bezierCurveTo(3.6,7.1,6.4,7.9,6.8,10.2);
+      c.bezierCurveTo(8.2,8.3,10.5,9.5,10.8,11.1);c.bezierCurveTo(13,9.7,15,11.6,15,14.1);
+      c.lineTo(14.6,19.8);c.bezierCurveTo(14.3,23.8,12.3,25.7,9.5,26.4);
+      c.lineTo(4,26.4);c.bezierCurveTo(1.8,26.3,.9,25.5,-.7,23.4);
+      c.lineTo(-7.2,15.6);c.bezierCurveTo(-9.4,12.4,-6.8,10.9,-4.9,12.7);c.lineTo(-1.9,15.4);c.closePath();
+      c.fillStyle='#f6ffff';c.fill();c.strokeStyle='#215261';c.lineWidth=1.9;c.stroke();c.restore();
+    }
+    c.restore();
+  }
+  root.querySelectorAll('[data-variant]').forEach((scene,i)=>{
+    scene.append(template.content.cloneNode(true));const canvas=scene.querySelector('canvas'),ctx=canvas.getContext('2d');
+    const dpr=Math.min(3,Math.max(1,devicePixelRatio||1));canvas.width=120*dpr;canvas.height=105*dpr;
+    ctx.scale(dpr,dpr);const params={rest:2,strength:100};
+    items.push({scene,ctx,params,i});
+    draw(ctx,i,0,1,true);
+    if(globalThis.Tweak){
+      const tweak=new Tweak({container:scene.querySelector('.mc-screen'),onChange:()=>draw(ctx,i,1.2,params.strength/100,reduced.matches)});
+      tweak.addSlider(params,'rest',{label:'动作间隔（秒）',min:1.5,max:5,step:.5});
+      tweak.addSlider(params,'strength',{label:'动效对比度',min:55,max:100,step:5});
+    }
+  });
+  const start=performance.now();
+  function frame(now){
+    if(!root.isConnected)return;
+    if(!document.hidden)for(const {scene,ctx,params,i} of items){
+      if(scene.hidden)continue;
+      draw(ctx,i,((now-start)/1000)%(2.45+params.rest),params.strength/100,reduced.matches);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>

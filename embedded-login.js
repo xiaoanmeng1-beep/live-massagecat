@@ -4,10 +4,13 @@ const path = require('path');
 
 // Keep the real SMS controls, challenge widget and account session together.
 class EmbeddedLogin extends EventEmitter {
-  constructor(parent, partition, log) {
+  constructor(parent, partition, log, options = {}) {
     super();
     this.parent = parent;
     this.log = log;
+    this.channel = options.channel || 'login-panel';
+    this.referenceWidth = options.referenceWidth || 320;
+    this.challengeWidth = options.challengeWidth || this.referenceWidth;
     this.closed = false;
     this.phase = 'loading';
     this.bounds = null;
@@ -16,7 +19,7 @@ class EmbeddedLogin extends EventEmitter {
     this.lastFormState = '';
     this.view = new WebContentsView({ webPreferences: {
       partition, contextIsolation: true, nodeIntegration: false, sandbox: true,
-      backgroundThrottling: false, preload: path.join(__dirname, 'auth-preload.js')
+      backgroundThrottling: false, preload: options.preload || path.join(__dirname, 'auth-preload.js')
     } });
     this.webContents = this.view.webContents;
     this.networkReady = null;
@@ -64,7 +67,7 @@ class EmbeddedLogin extends EventEmitter {
       this.lastFormState = '';
     }
     this.layout();
-    if (!this.parent.isDestroyed()) this.parent.webContents.send('login-panel:state', { phase });
+    if (!this.parent.isDestroyed()) this.parent.webContents.send(this.channel + ':state', { phase });
   }
 
   updateFormState(data) {
@@ -82,12 +85,13 @@ class EmbeddedLogin extends EventEmitter {
         .replace(/[A-Za-z0-9_=-]{32,}/g, '[已隐藏]').slice(0, 240);
     }
     this.formReady = state.ready || state.challenge;
+    this.hasChallenge = state.challenge;
     if (this.formReady) this.phase = 'ready';
     this.layout();
     const serialized = JSON.stringify(state);
     if (serialized === this.lastFormState) return;
     this.lastFormState = serialized;
-    this.parent.webContents.send('login-panel:form-state', state);
+    this.parent.webContents.send(this.channel + ':form-state', state);
     if (state.challenge) this.log('短信发送需要安全验证，显示原始验证组件');
     else if (state.notice === 'sent' && !this.smsAcknowledged) {
       this.smsAcknowledged = true;
@@ -116,7 +120,7 @@ class EmbeddedLogin extends EventEmitter {
     this.view.setVisible(fits && this.phase === 'ready');
     if (!fits) return;
     this.view.setBounds({ x, y, width: w, height: h });
-    this.webContents.setZoomFactor(Math.min(1, Math.max(0.6, w / 320)));
+    this.webContents.setZoomFactor(Math.min(1, Math.max(0.6, w / (this.hasChallenge?this.challengeWidth:this.referenceWidth))));
   }
 
   async prepareNetwork() {
@@ -193,7 +197,7 @@ class EmbeddedLogin extends EventEmitter {
     this.parent.removeListener('closed', this.onParentClosed);
     if (!this.parent.isDestroyed()) {
       this.parent.contentView.removeChildView(this.view);
-      this.parent.webContents.send('login-panel:state', { phase: 'closed' });
+      this.parent.webContents.send(this.channel + ':state', { phase: 'closed' });
     }
     if (!this.webContents.isDestroyed()) this.webContents.close();
     this.emit('closed');

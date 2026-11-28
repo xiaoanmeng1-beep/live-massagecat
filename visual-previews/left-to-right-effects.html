@@ -1,0 +1,71 @@
+<div id="motion-strip-ltr" aria-label="三种从左到右的特效，动态对比">
+  <div class="viz-row"><button class="btn" type="button" data-replay>↻ 重播特效</button></div>
+  <div class="fx-row">
+    <h3>拖尾飞入</h3>
+    <div class="fx-field fx-flight" aria-label="新消息带着三道光尾从左飞入，轻轻回弹后停住">
+      <span class="fx-flight-path"><span class="fx-chip"><i class="fx-tail" aria-hidden="true"></i>新消息</span></span>
+    </div>
+  </div>
+  <div class="fx-row">
+    <h3>光刃揭幕</h3>
+    <div class="fx-field fx-wipe" aria-label="一道竖光向右划过，在原地揭开消息">
+      <span class="fx-banner"><span class="fx-reveal">新 消 息 已 添 加</span><i class="fx-blade-path" aria-hidden="true"><b></b></i></span>
+    </div>
+  </div>
+  <div class="fx-row">
+    <h3>能量条加载</h3>
+    <div class="fx-field fx-load" aria-label="分段光条从左往右依次点亮，末端带有光晕">
+      <div class="fx-segments" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+#motion-strip-ltr {display:grid;gap:1em;--ice:var(--blue);--glow:var(--purple);--fill:var(--green)}
+#motion-strip-ltr .fx-row {display:grid;gap:.45em}
+#motion-strip-ltr .fx-field {position:relative;isolation:isolate;display:grid;place-items:center;height:4.6em;overflow:hidden;border-radius:.6em;background:linear-gradient(105deg,color-mix(in srgb,var(--ice) 7%,var(--muted)),var(--muted) 50%,color-mix(in srgb,var(--glow) 8%,var(--muted)))}
+#motion-strip-ltr .fx-flight-path {position:absolute;left:0;right:0;top:50%;height:0}
+#motion-strip-ltr .fx-chip {position:absolute;left:0;top:0;transform:translate(-50%,-50%);padding:.42em 1.25em;border-radius:2em;white-space:nowrap;color:var(--primary-foreground);background:var(--primary);box-shadow:0 0 1em color-mix(in srgb,var(--ice) 32%,transparent)}
+#motion-strip-ltr .fx-tail,#motion-strip-ltr .fx-tail::before,#motion-strip-ltr .fx-tail::after {position:absolute;display:block;right:100%;top:48%;width:6em;height:3px;border-radius:100%;background:linear-gradient(90deg,transparent,var(--ice));box-shadow:2px 0 7px color-mix(in srgb,var(--ice) 45%,transparent)}
+#motion-strip-ltr .fx-tail {opacity:0;transform-origin:right}
+#motion-strip-ltr .fx-tail::before,#motion-strip-ltr .fx-tail::after {content:"";right:-.3em;top:-.45em;width:75%;height:2px}
+#motion-strip-ltr .fx-tail::after {top:.45em;width:50%}
+#motion-strip-ltr .fx-banner {width:min(68%,19em);position:relative}
+#motion-strip-ltr .fx-reveal {display:block;padding:.55em .3em;text-align:center;white-space:nowrap;color:var(--foreground);font-weight:500;border-inline-start:3px solid var(--glow);background:linear-gradient(90deg,color-mix(in srgb,var(--glow) 26%,transparent),color-mix(in srgb,var(--glow) 9%,transparent))}
+#motion-strip-ltr .fx-blade-path {position:absolute;inset:-.3em 0;opacity:0}
+#motion-strip-ltr .fx-blade-path b {display:block;width:3px;height:100%;border-radius:100%;background:var(--glow);box-shadow:0 0 4px var(--glow),0 0 12px var(--glow)}
+#motion-strip-ltr .fx-segments {width:min(74%,23em);height:.95em;display:grid;grid-template-columns:repeat(16,1fr);gap:3px;transform:skewX(-15deg)}
+#motion-strip-ltr .fx-segments i {background:color-mix(in srgb,var(--fill) 75%,var(--foreground));border-radius:2px}
+#motion-strip-ltr .fx-run .fx-flight-path {animation:msgcat-fly 2.65s both}
+#motion-strip-ltr .fx-run .fx-tail {animation:msgcat-tail 2.65s both}
+#motion-strip-ltr .fx-run .fx-reveal {animation:msgcat-reveal 2.65s both}
+#motion-strip-ltr .fx-run .fx-blade-path {animation:msgcat-blade 2.65s both}
+#motion-strip-ltr .fx-run .fx-segments i {animation:msgcat-cell .65s calc(.22s + var(--cell,0) * 75ms) both}
+@keyframes msgcat-fly {0%,7%{transform:translateX(-20%)}36%{transform:translateX(77%);animation-timing-function:ease-out}48%{transform:translateX(70%)}60%,100%{transform:translateX(72%)}}
+@keyframes msgcat-tail {0%,7%{opacity:0;transform:scaleX(.2)}20%,33%{opacity:1;transform:scaleX(1)}48%,100%{opacity:0;transform:scaleX(.1)}}
+@keyframes msgcat-reveal {0%,10%{clip-path:inset(0 100% 0 0)}65%,100%{clip-path:inset(0 0 0 0)}}
+@keyframes msgcat-blade {0%{opacity:0;transform:translateX(0)}10%{opacity:1;transform:translateX(0)}65%{opacity:1;transform:translateX(100%)}71%,100%{opacity:0;transform:translateX(100%)}}
+@keyframes msgcat-cell {0%{opacity:.13;transform:scaleY(.72)}40%{opacity:1;transform:scaleY(1.28);box-shadow:0 0 9px var(--fill)}100%{opacity:1;transform:scaleY(1);box-shadow:none}}
+#motion-strip-ltr .fx-flight-path {transform:translateX(72%)}
+@media (prefers-reduced-motion:reduce) {#motion-strip-ltr:not(.fx-requested) .fx-run * {animation:none!important}}
+</style>
+<script>
+(() => {
+ const root = document.getElementById("motion-strip-ltr");
+ const rows = [...root.querySelectorAll(".fx-row")];
+ root.querySelectorAll(".fx-segments i").forEach((cell,i)=>cell.style.setProperty("--cell",String(i)));
+ function play() {
+   rows.forEach(row=>row.classList.remove("fx-run"));
+   void root.offsetWidth;
+   rows.forEach(row=>row.classList.add("fx-run"));
+ }
+ root.querySelector("[data-replay]").addEventListener("click",()=>{root.classList.add("fx-requested");play();});
+ if ("IntersectionObserver" in window) {
+   const observer = new IntersectionObserver(entries=>{
+     if(entries.some(entry=>entry.isIntersecting)) {play(); observer.disconnect();}
+   },{threshold:0.2});
+   observer.observe(root);
+ } else {play();}
+})();
+</script>

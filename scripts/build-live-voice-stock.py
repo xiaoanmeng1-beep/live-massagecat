@@ -1,0 +1,4 @@
+"""Fixed-scene production uses the single uploaded SQLite source and an approved script."""
+from pathlib import Path
+import subprocess, sys
+raise SystemExit(subprocess.call(["node", str(Path(__file__).with_name("generate-reviewed-voice.cjs")), *sys.argv[1:]]))
